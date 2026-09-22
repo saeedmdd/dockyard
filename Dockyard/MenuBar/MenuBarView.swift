@@ -86,18 +86,29 @@ struct MenuBarView: View {
                 .foregroundStyle(.secondary)
             ForEach(running.prefix(8)) { container in
                 HStack(spacing: 7) {
-                    ContainerStatusBadge(status: container.status)
+                    ContainerStatusBadge(
+                        status: container.status,
+                        isBusy: model.containers.pendingAction(for: container.id) != nil
+                    )
                     Text(container.id)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 4)
-                    // Stop buttons arrive with the lifecycle actions in T05.
                     if let port = container.ports.first, let url = port.localURL {
                         Link(destination: url) {
                             Image(systemName: "safari")
                         }
                         .help("Open http://localhost:\(port.hostPort)")
                     }
+                    Button {
+                        Task { await model.containers.stop(container.id) }
+                    } label: {
+                        Image(systemName: "stop.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(model.containers.pendingAction(for: container.id) != nil)
+                    .help("Stop \(container.id)")
+                    .accessibilityLabel("Stop \(container.id)")
                 }
                 .font(.callout)
             }

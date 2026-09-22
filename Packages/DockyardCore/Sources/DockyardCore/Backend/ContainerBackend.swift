@@ -20,6 +20,20 @@ public protocol ContainerBackend: Sendable {
     /// All containers, running or not, excluding the runtime's own machine VMs.
     func listContainers() async throws -> [ContainerItem]
 
+    /// Boots a stopped container and starts its init process, detached.
+    /// A container that is already running is left alone.
+    func startContainer(id: String) async throws
+
+    /// Asks a container to stop, giving its process time to exit before the
+    /// runtime forces the issue.
+    func stopContainer(id: String) async throws
+
+    /// Sends a signal, typically to end a container that will not stop.
+    func killContainer(id: String, signal: ProcessSignal) async throws
+
+    /// Removes a container. Running containers require `force`.
+    func deleteContainer(id: String, force: Bool) async throws
+
     /// All images, including infrastructure ones flagged via
     /// `ImageItem.isInfrastructure` so the UI can filter them.
     func listImages() async throws -> [ImageItem]

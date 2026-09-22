@@ -44,6 +44,59 @@ public struct LiveBackend: ContainerBackend {
         }
     }
 
+    public func startContainer(id: String) async throws {
+        try await mapErrors {
+            let container = try await client.get(id: id)
+            // Starting an already-running container is a no-op rather than an
+            // error: the user may have clicked twice, or a poll may have raced.
+            guard container.status != .running else { return }
+
+            // A missing bind-mount source fails deep inside the runtime with an
+            // opaque error, so check first and say something useful.
+            for mount in container.configuration.mounts where mount.isVirtiofs {
+                guard FileManager.default.fileExists(atPath: mount.source) else {
+                    throw DockyardError.upstream(
+                        code: "invalidState",
+                        message: "The folder \(mount.source) is mounted into this container but no longer exists."
+                    )
+                }
+            }
+
+            do {
+                // Detached with no terminal: every stdio slot is nil. Upstream's
+                // `ProcessIO` is deliberately not used — with `detach: true` it
+                // produces exactly this, and on the way installs readability
+                // handlers on the *app's* stdin and stdout, which an app must
+                // not have done to it.
+                let process = try await client.bootstrap(id: id, stdio: [nil, nil, nil])
+                try await process.start()
+            } catch {
+                // Bootstrap leaves the container half-up on failure; upstream's
+                // start command does the same cleanup.
+                try? await client.stop(id: id)
+                throw error
+            }
+        }
+    }
+
+    public func stopContainer(id: String) async throws {
+        try await mapErrors {
+            try await client.stop(id: id, opts: .default)
+        }
+    }
+
+    public func killContainer(id: String, signal: ProcessSignal) async throws {
+        try await mapErrors {
+            try await client.kill(id: id, signal: signal.rawValue)
+        }
+    }
+
+    public func deleteContainer(id: String, force: Bool) async throws {
+        try await mapErrors {
+            try await client.delete(id: id, force: force)
+        }
+    }
+
     // MARK: - Images
 
     public func listImages() async throws -> [ImageItem] {
