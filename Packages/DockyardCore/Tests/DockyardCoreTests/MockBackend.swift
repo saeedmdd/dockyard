@@ -40,6 +40,12 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         lock.withLock { _calls }
     }
 
+    /// The health this backend answers with, for tests that need to compare
+    /// against the exact value.
+    var stubbedHealth: DaemonHealth {
+        lock.withLock { _health }
+    }
+
     func setFailure(_ failure: DockyardError?) {
         lock.withLock { _failure = failure }
     }
