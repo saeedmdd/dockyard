@@ -7,7 +7,7 @@ Status: `todo` | `in-progress` | `done` | `blocked`. Execute per `docs/WORKFLOW.
 | [T01](T01-toolchain-and-skeleton.md) | Toolchain + project skeleton | M0 | — | done |
 | [T02](T02-backend-protocol-and-live-backend.md) | Backend protocol, models, LiveBackend | M0 | T01 | done |
 | [T03](T03-daemon-state-and-onboarding.md) | Daemon state machine, CLIRunner, onboarding | M0 | T02 | done |
-| [T04](T04-main-window-and-menubar.md) | Main window, tables, poller, menu bar | M0 | T03 | todo |
+| [T04](T04-main-window-and-menubar.md) | Main window, tables, poller, menu bar | M0 | T03 | done |
 | [T05](T05-container-lifecycle.md) | Start / stop / kill / delete containers | M1 | T04 | todo |
 | [T06](T06-container-detail-overview-inspect.md) | Container detail: overview + inspect | M1 | T04 | todo |
 | [T07](T07-logs-tailing.md) | Live log tailing | M1 | T06 | todo |

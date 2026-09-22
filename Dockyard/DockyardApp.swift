@@ -17,10 +17,11 @@ struct DockyardApp: App {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .toolbar) {
                 Button("Refresh") {
-                    Task { await model.system.refresh() }
+                    Task { await model.refreshNow() }
                 }
                 .keyboardShortcut("r")
             }
+            SidebarCommands()
         }
 
         MenuBarExtra("Dockyard", systemImage: "shippingbox") {
