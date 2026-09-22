@@ -13,7 +13,7 @@ Status: `todo` | `in-progress` | `done` | `blocked`. Execute per `docs/WORKFLOW.
 | [T07](T07-logs-tailing.md) | Live log tailing | M1 | T06 | done |
 | [T08](T08-stats.md) | Stats tab with charts | M1 | T06 | done |
 | [T09](T09-pull-image.md) | Pull sheet with progress | M2 | T04 | done |
-| [T10](T10-image-delete-tag-inspect.md) | Image delete / tag / inspect | M2 | T09 | todo |
+| [T10](T10-image-delete-tag-inspect.md) | Image delete / tag / inspect | M2 | T09 | done |
 | [T11](T11-run-sheet.md) | Full Run sheet | M2 | T05, T10 | todo |
 | [T12](T12-integration-tests.md) | Integration test suite against real daemon | M2 | T11 | todo |
 | [T13](T13-build-sheet.md) | Build sheet via `container build` | M3 | T10 | todo |

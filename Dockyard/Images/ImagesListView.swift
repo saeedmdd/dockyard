@@ -5,6 +5,8 @@ struct ImagesListView: View {
     @Environment(AppModel.self) private var model
     @State private var sortOrder = [KeyPathComparator(\ImageItem.displayReference)]
     @State private var isShowingPullSheet = false
+    @State private var tagTarget: ImageItem?
+    @State private var deletionTarget: ImageItem?
 
     var body: some View {
         @Bindable var model = model
@@ -13,6 +15,12 @@ struct ImagesListView: View {
         @Bindable var images = model.images
 
         VStack(spacing: 0) {
+            if let error = model.images.actionError {
+                ActionErrorBanner(error: error) { model.images.clearActionError() }
+            }
+            if let note = model.statusNote {
+                StatusNoteBanner(text: note) { model.dismissStatusNote() }
+            }
             ForEach(model.images.pulls) { job in
                 PullProgressRow(job: job) { model.images.dismiss(job) }
             }
@@ -25,7 +33,48 @@ struct ImagesListView: View {
                 )
                 .frame(maxHeight: .infinity)
             } else {
-                Table(
+                HSplitView {
+                    imagesTable
+                        .frame(minWidth: 360, idealWidth: 560)
+                    if model.selectedImageID != nil {
+                        ImageDetailView(tagTarget: $tagTarget, deletionTarget: $deletionTarget)
+                            .frame(minWidth: 340, idealWidth: 420)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Images")
+        .navigationSubtitle(subtitle)
+        .sheet(item: $tagTarget) { image in
+            TagImageSheet(image: image)
+        }
+        .deleteImageConfirmation(target: $deletionTarget)
+        .toolbar {
+            Button("Pull Image", systemImage: "arrow.down.circle") {
+                isShowingPullSheet = true
+            }
+            .help("Pull an image from a registry")
+
+            Toggle("Show runtime images", isOn: $images.showsInfrastructure)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .help("Show the builder and VM init images the runtime manages itself")
+        }
+        .sheet(isPresented: $isShowingPullSheet) {
+            PullSheet()
+        }
+        .onChange(of: model.isPullSheetRequested) { _, requested in
+            if requested {
+                isShowingPullSheet = true
+                model.isPullSheetRequested = false
+            }
+        }
+    }
+
+    private var imagesTable: some View {
+        @Bindable var model = model
+
+        return Table(
                     model.images.visibleItems.sorted(using: sortOrder),
                     selection: $model.selectedImageID,
                     sortOrder: $sortOrder
@@ -64,32 +113,6 @@ struct ImagesListView: View {
                     }
                     .width(70)
                 }
-            }
-        }
-        .navigationTitle("Images")
-        .navigationSubtitle(subtitle)
-        .toolbar {
-            Button("Pull Image", systemImage: "arrow.down.circle") {
-                isShowingPullSheet = true
-            }
-            .help("Pull an image from a registry")
-
-            // Sizes cost a manifest fetch per image, so they are not in the
-            // list; T10 shows them in the detail pane.
-            Toggle("Show runtime images", isOn: $images.showsInfrastructure)
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .help("Show the builder and VM init images the runtime manages itself")
-        }
-        .sheet(isPresented: $isShowingPullSheet) {
-            PullSheet()
-        }
-        .onChange(of: model.isPullSheetRequested) { _, requested in
-            if requested {
-                isShowingPullSheet = true
-                model.isPullSheetRequested = false
-            }
-        }
     }
 
     private var emptyMessage: String {
@@ -97,7 +120,7 @@ struct ImagesListView: View {
         if hidden > 0 && !model.images.showsInfrastructure {
             return "\(hidden) runtime image\(hidden == 1 ? "" : "s") hidden. Pull an image to get started."
         }
-        return "Pull an image to get started. The pull sheet arrives in T09."
+        return "Pull an image to get started."
     }
 
     private var subtitle: String {

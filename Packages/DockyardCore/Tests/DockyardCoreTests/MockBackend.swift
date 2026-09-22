@@ -21,6 +21,10 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         var logHandles = 0
         var stats = 0
         var pull = 0
+        var imageDetail = 0
+        var imageInspect = 0
+        var deleteImage = 0
+        var tagImage = 0
     }
 
     /// Records what was asked of each container, in order.
@@ -244,6 +248,78 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
             continuation.onTermination = { termination in
                 if case .cancelled = termination { task.cancel() }
             }
+        }
+    }
+
+    func imageDetail(reference: String) async throws -> ImageDetail {
+        try lock.withLock {
+            _calls.imageDetail += 1
+            if let _failure { throw _failure }
+            guard let image = _images.first(where: { $0.reference == reference }) else {
+                throw DockyardError.upstream(code: "notFound", message: "image not found: \(reference)")
+            }
+            return ImageDetail(
+                reference: image.reference,
+                displayReference: image.displayReference,
+                digest: image.digest,
+                mediaType: image.mediaType,
+                createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                variants: [
+                    ImageVariant(
+                        platform: "linux/arm64", digest: image.digest, sizeBytes: 7_000_000,
+                        entrypoint: ["/entrypoint.sh"], command: ["sh"], workingDirectory: "/",
+                        user: "root", environment: ["PATH": "/usr/bin"], labels: [:], stopSignal: nil
+                    ),
+                    ImageVariant(
+                        platform: "linux/amd64", digest: "sha256:beef", sizeBytes: 7_500_000,
+                        entrypoint: [], command: ["sh"], workingDirectory: nil,
+                        user: nil, environment: [:], labels: [:], stopSignal: "SIGQUIT"
+                    ),
+                ]
+            )
+        }
+    }
+
+    func imageInspectJSON(reference: String) async throws -> String {
+        try lock.withLock {
+            _calls.imageInspect += 1
+            if let _failure { throw _failure }
+            return "{\n  \"name\" : \"\(reference)\"\n}"
+        }
+    }
+
+    @discardableResult
+    func deleteImage(reference: String) async throws -> ImageDeletionResult {
+        try lock.withLock {
+            _calls.deleteImage += 1
+            if let _failure { throw _failure }
+            guard let image = _images.first(where: { $0.reference == reference }) else {
+                throw DockyardError.upstream(code: "notFound", message: "image not found")
+            }
+            if image.isInfrastructure {
+                throw DockyardError.upstream(
+                    code: "invalidArgument",
+                    message: "This image is used by the container runtime itself and cannot be deleted."
+                )
+            }
+            _images.removeAll { $0.reference == reference }
+            return ImageDeletionResult(reference: reference, reclaimedBytes: 4_000_000)
+        }
+    }
+
+    func tagImage(reference: String, newReference: String) async throws {
+        try lock.withLock {
+            _calls.tagImage += 1
+            if let _failure { throw _failure }
+            guard let image = _images.first(where: { $0.reference == reference }) else {
+                throw DockyardError.upstream(code: "notFound", message: "image not found")
+            }
+            _images.append(
+                ImageItem(
+                    reference: newReference, displayReference: newReference,
+                    digest: image.digest, mediaType: image.mediaType, isInfrastructure: false
+                )
+            )
         }
     }
 

@@ -51,6 +51,7 @@ final class AppModel {
     let logs: LogStore
     let stats: StatsStore
     let images: ImageStore
+    let imageDetail: ImageDetailStore
 
     var selectedSection: SidebarSection = .containers
     var selectedContainerID: ContainerItem.ID? {
@@ -59,7 +60,12 @@ final class AppModel {
             Task { await containerDetail.select(selectedContainerID) }
         }
     }
-    var selectedImageID: ImageItem.ID?
+    var selectedImageID: ImageItem.ID? {
+        didSet {
+            guard selectedImageID != oldValue else { return }
+            Task { await imageDetail.select(selectedImageID) }
+        }
+    }
     /// Set by the menu command so the Images screen can open its pull sheet.
     var isPullSheetRequested = false
 
@@ -82,6 +88,7 @@ final class AppModel {
         self.logs = LogStore(backend: backend)
         self.stats = StatsStore(backend: backend)
         self.images = ImageStore(backend: backend)
+        self.imageDetail = ImageDetailStore(backend: backend)
         self.poller = Poller(interval: .seconds(2)) { [weak self] in
             await self?.tick()
         }
@@ -122,6 +129,24 @@ final class AppModel {
             poller.pause()
         }
     }
+
+    /// A short-lived note about something that succeeded, such as how much
+    /// disk a delete actually reclaimed.
+    private(set) var statusNote: String?
+
+    func note(reclaimed result: ImageDeletionResult) {
+        statusNote =
+            result.reclaimedBytes > 0
+            ? "Deleted \(result.reference) · reclaimed \(result.reclaimedBytes.formatted(.byteCount(style: .file)))"
+            : "Deleted \(result.reference) · no space reclaimed, its layers are shared"
+        let note = statusNote
+        Task {
+            try? await Task.sleep(for: .seconds(6))
+            if statusNote == note { statusNote = nil }
+        }
+    }
+
+    func dismissStatusNote() { statusNote = nil }
 
     func show(_ error: DockyardError) { notice = error }
     func dismissNotice() { notice = nil }

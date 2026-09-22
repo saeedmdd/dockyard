@@ -58,6 +58,20 @@ public protocol ContainerBackend: Sendable {
     /// ready to run. The stream finishes when the image is usable.
     func pullImage(reference: String, platform: String?) -> AsyncThrowingStream<PullProgress, any Error>
 
+    /// Everything about one image, including its per-platform variants.
+    func imageDetail(reference: String) async throws -> ImageDetail
+
+    /// The image's resolved configuration as pretty JSON, matching
+    /// `container image inspect`.
+    func imageInspectJSON(reference: String) async throws -> String
+
+    /// Deletes an image and collects blobs nothing references any more.
+    @discardableResult
+    func deleteImage(reference: String) async throws -> ImageDeletionResult
+
+    /// Points a second reference at the same image.
+    func tagImage(reference: String, newReference: String) async throws
+
     /// Total size of an image in bytes. Separate from `listImages()` because it
     /// costs an index fetch plus a manifest fetch per image.
     func imageSize(reference: String) async throws -> Int64

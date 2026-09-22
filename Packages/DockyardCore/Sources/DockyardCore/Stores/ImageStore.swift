@@ -8,6 +8,10 @@ public final class ImageStore {
     public private(set) var items: [ImageItem] = []
     public private(set) var isLoadingInitially = true
     public private(set) var lastError: DockyardError?
+    /// A failure from delete or tag. Kept apart from `lastError` for the same
+    /// reason as in ContainerStore: every action refreshes the list, and a
+    /// successful refresh would clear the error the user needs to read.
+    public private(set) var actionError: DockyardError?
 
     /// Whether the runtime's own builder and VM init images are listed.
     /// Hidden by default, matching `container image list`. T10 adds the toggle.
@@ -67,6 +71,48 @@ public final class ImageStore {
         }
         job.attach(task)
         return job
+    }
+
+    // MARK: - Image actions
+
+    /// Containers using an image, matched on the full reference.
+    ///
+    /// Deleting an image out from under a container leaves it unable to start,
+    /// so the UI asks before letting it happen.
+    public func containersUsing(_ image: ImageItem, in containers: [ContainerItem]) -> [ContainerItem] {
+        containers.filter { $0.image == image.reference }
+    }
+
+    /// Deletes an image, reporting what the collection actually reclaimed.
+    @discardableResult
+    public func delete(_ reference: String) async -> ImageDeletionResult? {
+        actionError = nil
+        do {
+            let result = try await backend.deleteImage(reference: reference)
+            await refresh()
+            return result
+        } catch {
+            actionError = DockyardError(mapping: error)
+            return nil
+        }
+    }
+
+    /// Adds another reference pointing at the same image.
+    @discardableResult
+    public func tag(_ reference: String, as newReference: String) async -> Bool {
+        actionError = nil
+        do {
+            try await backend.tagImage(reference: reference, newReference: newReference)
+            await refresh()
+            return true
+        } catch {
+            actionError = DockyardError(mapping: error)
+            return false
+        }
+    }
+
+    public func clearActionError() {
+        actionError = nil
     }
 
     /// Waits for every in-flight pull to finish. Used by tests, and by any

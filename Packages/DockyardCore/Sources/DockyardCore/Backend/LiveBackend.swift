@@ -244,6 +244,64 @@ public struct LiveBackend: ContainerBackend {
         return try ContainerizationOCI.Platform(from: platform)
     }
 
+    public func imageDetail(reference: String) async throws -> ImageDetail {
+        try await mapErrors {
+            let config = try await configLoader.load()
+            let image = try await ClientImage.get(reference: reference, containerSystemConfig: config)
+            // The same conversion `container image inspect` uses, so the pane
+            // and the CLI describe an image identically.
+            let resource = try await image.toImageResource(containerSystemConfig: config)
+            return ImageDetail(resource: resource, image: image)
+        }
+    }
+
+    public func imageInspectJSON(reference: String) async throws -> String {
+        try await mapErrors {
+            let config = try await configLoader.load()
+            let image = try await ClientImage.get(reference: reference, containerSystemConfig: config)
+            let resource = try await image.toImageResource(containerSystemConfig: config)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            encoder.dateEncodingStrategy = .iso8601
+            return String(decoding: try encoder.encode(resource), as: UTF8.self)
+        }
+    }
+
+    @discardableResult
+    public func deleteImage(reference: String) async throws -> ImageDeletionResult {
+        try await mapErrors {
+            let config = try await configLoader.load()
+            // The runtime needs these to run at all; upstream's delete skips
+            // them silently, which would leave a user wondering why nothing
+            // happened. Refusing with a reason is better.
+            if Utility.isInfraImage(
+                name: reference,
+                builderImage: config.build.image,
+                initImage: config.vminit.image
+            ) {
+                throw DockyardError.upstream(
+                    code: "invalidArgument",
+                    message: "This image is used by the container runtime itself and cannot be deleted."
+                )
+            }
+
+            try await ClientImage.delete(reference: reference, garbageCollect: false)
+            // Deleting a reference does not free its layers; upstream collects
+            // them afterwards and reports what that actually reclaimed.
+            let (_, reclaimed) = try await ClientImage.cleanUpOrphanedBlobs()
+            return ImageDeletionResult(reference: reference, reclaimedBytes: reclaimed)
+        }
+    }
+
+    public func tagImage(reference: String, newReference: String) async throws {
+        try await mapErrors {
+            let config = try await configLoader.load()
+            let image = try await ClientImage.get(reference: reference, containerSystemConfig: config)
+            let normalized = try ClientImage.normalizeReference(newReference, containerSystemConfig: config)
+            _ = try await image.tag(new: normalized)
+        }
+    }
+
     public func imageSize(reference: String) async throws -> Int64 {
         try await mapErrors {
             let config = try await configLoader.load()
@@ -383,6 +441,52 @@ extension NetworkAttachment {
             hostname: attachment.hostname,
             ipv4Address: attachment.ipv4Address.description,
             gateway: attachment.ipv4Gateway.description
+        )
+    }
+}
+
+extension ImageDetail {
+    init(resource: ImageResource, image: ClientImage) {
+        self.init(
+            reference: resource.name,
+            displayReference: resource.displayReference,
+            digest: image.digest,
+            mediaType: image.description.mediaType,
+            createdAt: resource.configuration.creationDate,
+            // Attestation manifests are metadata, not builds you can run, and
+            // they arrive with the platform `unknown/unknown`. Upstream's
+            // verbose listing skips them and its size calculation ignores them,
+            // so listing them as platforms would both confuse and inflate the
+            // reported size.
+            variants: resource.variants
+                .filter { $0.platform.description != ImageVariant.attestationPlatform }
+                .map(ImageVariant.init(variant:))
+        )
+    }
+}
+
+extension ImageVariant {
+    init(variant: ImageResource.Variant) {
+        let config = variant.config.config
+        self.init(
+            platform: variant.platform.description,
+            digest: variant.digest,
+            sizeBytes: variant.size,
+            entrypoint: config?.entrypoint ?? [],
+            command: config?.cmd ?? [],
+            workingDirectory: config?.workingDir,
+            user: config?.user,
+            // Same `KEY=value` shape as a container's environment, and the same
+            // reason to split on the first `=` only.
+            environment: Dictionary(
+                (config?.env ?? []).compactMap { entry -> (String, String)? in
+                    guard let separator = entry.firstIndex(of: "=") else { return (entry, "") }
+                    return (String(entry[..<separator]), String(entry[entry.index(after: separator)...]))
+                },
+                uniquingKeysWith: { _, last in last }
+            ),
+            labels: config?.labels ?? [:],
+            stopSignal: config?.stopSignal
         )
     }
 }
