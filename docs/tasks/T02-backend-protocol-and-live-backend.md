@@ -41,8 +41,29 @@ Confirmed while doing T01:
 - `Tests/DockyardCoreTests/ErrorMappingTests.swift`.
 
 ## Acceptance
-- [ ] `swift test` green with MockBackend + error-mapping tests.
-- [ ] Throwaway executable/test (integration, gated) calling `LiveBackend().health()` against a running daemon returns version `1.0.0`.
-- [ ] No file outside `Backend/` imports an upstream module (`grep -r "import Container" Sources | grep -v Backend/` is empty).
+- [x] `swift test` green: 29 unit tests in 7 suites, zero warnings.
+- [x] Gated integration tests against the running daemon: 5 tests pass. `LiveBackend().health()`
+      reports `1.0.0`; list calls return real data.
+- [x] No file outside `Backend/` imports an upstream module — verified by grep.
+- [x] Conversions checked against the CLI on real data: container count 7 = 7; image count 10 with
+      2 flagged infrastructure = the CLI's 8; digests (`51183f2cfa63`, `e31753d05250`,
+      `0ce1b8559ae3`), port strings (`0.0.0.0:9200->9200/tcp`) and denormalized references
+      (`docker.io/library/alpine:latest` → `alpine:latest`) all match.
+- [x] `xcodebuild` still succeeds.
+
+## Findings
+- **The apiserver does not report a bare semver.** `health.apiServerVersion` is the whole sentence
+  `"container-apiserver version 1.0.0 (build: release, commit: ee848e3)"`, because the server sends
+  `ReleaseVersion.singleLine(appName:)` and `container system version` prints it unparsed. Caught by
+  the integration test. `DaemonHealth.semanticVersion` extracts `x.y.z`; an unparseable version is
+  treated as a match so the app never blocks a user over a string it merely failed to read. **T03's
+  mismatch banner must compare `semanticVersion`, not `apiServerVersion`.**
+- `ContainerizationError` has no SPM product of its own — depend on the `Containerization` library.
+- `ContainerSystemConfig` and `ConfigurationLoader` live in `ContainerPersistence`.
+- `isInfraImage` compares against the *currently configured* builder and vminit images only, so older
+  copies (`vminit:0.16.1`, `builder:0.6.0`) are not flagged. That matches `container image list`.
+- `logRoot` is absent on this install, so the field must stay optional.
+- `listImages()` returns every image with an `isInfrastructure` flag rather than filtering, leaving
+  the choice to the UI; the CLI hides them by default and T10 adds that toggle.
 
 ## Notes
