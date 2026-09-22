@@ -72,9 +72,13 @@ struct ContainerDetailView: View {
                 ContainerOverviewView(detail: detail)
             case .logs:
                 LogsView(containerID: detail.id)
+            case .stats:
+                if let item = model.containers.item(id: detail.id) {
+                    StatsView(container: item)
+                }
             case .inspect:
                 InspectView(json: store.inspectJSON, title: detail.id)
-            case .stats, .terminal:
+            case .terminal:
                 EmptyListView(
                     symbol: tab.symbol,
                     title: tab.rawValue,
@@ -86,7 +90,6 @@ struct ContainerDetailView: View {
 
     private var comingSoon: String {
         switch tab {
-        case .stats: "CPU and memory charts arrive in T08."
         case .terminal: "An interactive shell arrives in T14."
         default: ""
         }

@@ -11,7 +11,7 @@ Status: `todo` | `in-progress` | `done` | `blocked`. Execute per `docs/WORKFLOW.
 | [T05](T05-container-lifecycle.md) | Start / stop / kill / delete containers | M1 | T04 | done |
 | [T06](T06-container-detail-overview-inspect.md) | Container detail: overview + inspect | M1 | T04 | done |
 | [T07](T07-logs-tailing.md) | Live log tailing | M1 | T06 | done |
-| [T08](T08-stats.md) | Stats tab with charts | M1 | T06 | todo |
+| [T08](T08-stats.md) | Stats tab with charts | M1 | T06 | done |
 | [T09](T09-pull-image.md) | Pull sheet with progress | M2 | T04 | todo |
 | [T10](T10-image-delete-tag-inspect.md) | Image delete / tag / inspect | M2 | T09 | todo |
 | [T11](T11-run-sheet.md) | Full Run sheet | M2 | T05, T10 | todo |

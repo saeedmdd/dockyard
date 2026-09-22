@@ -19,6 +19,7 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         var detail = 0
         var inspect = 0
         var logHandles = 0
+        var stats = 0
     }
 
     /// Records what was asked of each container, in order.
@@ -170,6 +171,30 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
                 throw DockyardError.upstream(code: "notFound", message: "container not found: \(id)")
             }
             return "{\n  \"id\" : \"\(id)\"\n}"
+        }
+    }
+
+    /// Counters advance on each call so consecutive readings produce real
+    /// rates: 0.5 cores of CPU and 1 KB/s of network per second of interval.
+    func containerStats(id: String) async throws -> RawContainerStats {
+        try lock.withLock {
+            _calls.stats += 1
+            if let _failure { throw _failure }
+            guard _containers.contains(where: { $0.id == id }) else {
+                throw DockyardError.upstream(code: "notFound", message: "no such container \(id)")
+            }
+            let tick = UInt64(_calls.stats)
+            return RawContainerStats(
+                id: id,
+                memoryUsedBytes: 64 * 1024 * 1024,
+                memoryLimitBytes: 1024 * 1024 * 1024,
+                cpuUsageMicroseconds: tick * 500_000,
+                networkReceivedBytes: tick * 1024,
+                networkSentBytes: tick * 512,
+                blockReadBytes: tick * 4096,
+                blockWrittenBytes: tick * 2048,
+                processCount: 3
+            )
         }
     }
 

@@ -27,6 +27,9 @@ public protocol ContainerBackend: Sendable {
     /// matching `container inspect`.
     func containerInspectJSON(id: String) async throws -> String
 
+    /// A reading of a running container's resource counters.
+    func containerStats(id: String) async throws -> RawContainerStats
+
     /// Open file handles for a container's logs.
     ///
     /// These are ordinary files the runtime appends to, so following one means

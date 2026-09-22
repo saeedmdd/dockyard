@@ -73,6 +73,23 @@ public struct LiveBackend: ContainerBackend {
         }
     }
 
+    public func containerStats(id: String) async throws -> RawContainerStats {
+        try await mapErrors {
+            let stats = try await client.stats(id: id)
+            return RawContainerStats(
+                id: stats.id,
+                memoryUsedBytes: stats.memoryUsageBytes,
+                memoryLimitBytes: stats.memoryLimitBytes,
+                cpuUsageMicroseconds: stats.cpuUsageUsec,
+                networkReceivedBytes: stats.networkRxBytes,
+                networkSentBytes: stats.networkTxBytes,
+                blockReadBytes: stats.blockReadBytes,
+                blockWrittenBytes: stats.blockWriteBytes,
+                processCount: stats.numProcesses
+            )
+        }
+    }
+
     public func logHandles(id: String) async throws -> ContainerLogHandles {
         try await mapErrors {
             // Upstream's order, as `container logs` relies on it: index 0 is
