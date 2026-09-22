@@ -26,7 +26,16 @@ struct ContainersListView: View {
                         : "Run an image to create one. The Run sheet arrives in T11."
                 )
             } else {
-                table
+                // The detail pane sits beside the table rather than replacing
+                // it, so the user keeps their place in the list while reading.
+                HSplitView {
+                    table
+                        .frame(minWidth: 380, idealWidth: 620)
+                    if model.selectedContainerID != nil {
+                        ContainerDetailView(deletionTarget: $deletionTarget)
+                            .frame(minWidth: 340, idealWidth: 420)
+                    }
+                }
             }
         }
         .navigationTitle("Containers")

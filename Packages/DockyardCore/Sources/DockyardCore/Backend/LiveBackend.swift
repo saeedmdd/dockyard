@@ -44,6 +44,35 @@ public struct LiveBackend: ContainerBackend {
         }
     }
 
+    public func containerDetail(id: String) async throws -> ContainerDetail {
+        try await mapErrors {
+            ContainerDetail(snapshot: try await client.get(id: id))
+        }
+    }
+
+    public func containerInspectJSON(id: String) async throws -> String {
+        try await mapErrors {
+            let snapshot = try await client.get(id: id)
+            // `container inspect` serialises the managed resource, so the same
+            // wrapper is used here and the output lines up with the CLI's.
+            // Qualified: upstream has its own `ContainerStatus`, and inside this
+            // module the bare name means Dockyard's enum.
+            let managed = ManagedContainer(
+                configuration: snapshot.configuration,
+                status: ContainerResource.ContainerStatus(
+                    state: snapshot.status,
+                    networks: snapshot.networks,
+                    startedDate: snapshot.startedDate
+                )
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(managed)
+            return String(decoding: data, as: UTF8.self)
+        }
+    }
+
     public func startContainer(id: String) async throws {
         try await mapErrors {
             let container = try await client.get(id: id)
@@ -169,6 +198,67 @@ extension ContainerItem {
             ports: configuration.publishedPorts.map(PortMapping.init(publishPort:)),
             networks: snapshot.networks.map(NetworkAttachment.init(attachment:)),
             labels: configuration.labels
+        )
+    }
+}
+
+extension ContainerDetail {
+    init(snapshot: ContainerSnapshot) {
+        let configuration = snapshot.configuration
+        let process = configuration.initProcess
+        self.init(
+            id: snapshot.id,
+            image: configuration.image.reference,
+            status: ContainerStatus(snapshot.status),
+            startedAt: snapshot.startedDate,
+            createdAt: configuration.creationDate,
+            executable: process.executable,
+            arguments: process.arguments,
+            // Stored as `KEY=value` strings; a value may itself contain `=`.
+            environment: Dictionary(
+                process.environment.compactMap { entry -> (String, String)? in
+                    guard let separator = entry.firstIndex(of: "=") else { return (entry, "") }
+                    return (String(entry[..<separator]), String(entry[entry.index(after: separator)...]))
+                },
+                uniquingKeysWith: { _, last in last }
+            ),
+            workingDirectory: process.workingDirectory,
+            user: process.user.description,
+            hasTerminal: process.terminal,
+            cpus: configuration.resources.cpus,
+            memoryInBytes: configuration.resources.memoryInBytes,
+            os: configuration.platform.os,
+            architecture: configuration.platform.architecture,
+            runtimeHandler: configuration.runtimeHandler,
+            isVirtualizationEnabled: configuration.virtualization,
+            isRosettaEnabled: configuration.rosetta,
+            isReadOnlyRootFilesystem: configuration.readOnly,
+            ports: configuration.publishedPorts.map(PortMapping.init(publishPort:)),
+            networks: snapshot.networks.map(NetworkAttachment.init(attachment:)),
+            mounts: configuration.mounts.map(MountInfo.init(filesystem:)),
+            dnsNameservers: configuration.dns?.nameservers ?? [],
+            dnsDomain: configuration.dns?.domain,
+            dnsSearchDomains: configuration.dns?.searchDomains ?? [],
+            labels: configuration.labels
+        )
+    }
+}
+
+extension MountInfo {
+    init(filesystem: Filesystem) {
+        let kind: Kind =
+            switch filesystem.type {
+            case .block: .block
+            case .volume: .volume
+            case .virtiofs: .virtiofs
+            case .tmpfs: .tmpfs
+            }
+        self.init(
+            kind: kind,
+            source: filesystem.source,
+            destination: filesystem.destination,
+            isReadOnly: filesystem.options.readonly,
+            volumeName: filesystem.volumeName
         )
     }
 }

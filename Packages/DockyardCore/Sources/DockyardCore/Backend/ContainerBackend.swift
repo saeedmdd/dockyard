@@ -20,6 +20,13 @@ public protocol ContainerBackend: Sendable {
     /// All containers, running or not, excluding the runtime's own machine VMs.
     func listContainers() async throws -> [ContainerItem]
 
+    /// Everything about one container, for the detail pane.
+    func containerDetail(id: String) async throws -> ContainerDetail
+
+    /// The container's full configuration and runtime state as pretty JSON,
+    /// matching `container inspect`.
+    func containerInspectJSON(id: String) async throws -> String
+
     /// Boots a stopped container and starts its init process, detached.
     /// A container that is already running is left alone.
     func startContainer(id: String) async throws

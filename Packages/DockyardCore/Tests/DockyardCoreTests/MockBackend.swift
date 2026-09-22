@@ -16,6 +16,8 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         var stop = 0
         var kill = 0
         var delete = 0
+        var detail = 0
+        var inspect = 0
     }
 
     /// Records what was asked of each container, in order.
@@ -147,6 +149,28 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         }
     }
 
+    func containerDetail(id: String) async throws -> ContainerDetail {
+        try lock.withLock {
+            _calls.detail += 1
+            if let _failure { throw _failure }
+            guard let container = _containers.first(where: { $0.id == id }) else {
+                throw DockyardError.upstream(code: "notFound", message: "container not found: \(id)")
+            }
+            return .stub(id: container.id, status: container.status)
+        }
+    }
+
+    func containerInspectJSON(id: String) async throws -> String {
+        try lock.withLock {
+            _calls.inspect += 1
+            if let _failure { throw _failure }
+            guard _containers.contains(where: { $0.id == id }) else {
+                throw DockyardError.upstream(code: "notFound", message: "container not found: \(id)")
+            }
+            return "{\n  \"id\" : \"\(id)\"\n}"
+        }
+    }
+
     // MARK: - Lifecycle
 
     /// These mutate the stored containers so a store's refresh after an action
@@ -195,6 +219,45 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
     private func replace(id: String, transform: (ContainerItem) -> ContainerItem) {
         guard let index = _containers.firstIndex(where: { $0.id == id }) else { return }
         _containers[index] = transform(_containers[index])
+    }
+}
+
+extension ContainerDetail {
+    static func stub(id: String = "web", status: ContainerStatus = .running) -> ContainerDetail {
+        ContainerDetail(
+            id: id,
+            image: "docker.io/library/nginx:latest",
+            status: status,
+            startedAt: status == .running ? Date(timeIntervalSince1970: 1_700_000_000) : nil,
+            createdAt: Date(timeIntervalSince1970: 1_699_000_000),
+            executable: "/docker-entrypoint.sh",
+            arguments: ["nginx", "-g", "daemon off;"],
+            environment: ["PATH": "/usr/local/sbin:/usr/bin", "NGINX_VERSION": "1.27"],
+            workingDirectory: "/",
+            user: "0:0",
+            hasTerminal: false,
+            cpus: 4,
+            memoryInBytes: 1024 * 1024 * 1024,
+            os: "linux",
+            architecture: "arm64",
+            runtimeHandler: "container-runtime-linux",
+            isVirtualizationEnabled: false,
+            isRosettaEnabled: false,
+            isReadOnlyRootFilesystem: false,
+            ports: [PortMapping(hostAddress: "0.0.0.0", hostPort: 8080, containerPort: 80, networkProtocol: "tcp")],
+            networks: [
+                NetworkAttachment(network: "default", hostname: id, ipv4Address: "192.168.64.3", gateway: "192.168.64.1")
+            ],
+            mounts: [
+                MountInfo(kind: .virtiofs, source: "/", destination: "/", isReadOnly: false),
+                MountInfo(kind: .virtiofs, source: "/Users/test/site", destination: "/usr/share/nginx/html", isReadOnly: true),
+                MountInfo(kind: .volume, source: "cache", destination: "/var/cache", isReadOnly: false, volumeName: "cache"),
+            ],
+            dnsNameservers: ["192.168.64.1"],
+            dnsDomain: "test",
+            dnsSearchDomains: [],
+            labels: ["app": "web"]
+        )
     }
 }
 

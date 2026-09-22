@@ -47,10 +47,16 @@ enum SidebarSection: String, Hashable, CaseIterable, Identifiable {
 final class AppModel {
     let system: SystemStore
     let containers: ContainerStore
+    let containerDetail: ContainerDetailStore
     let images: ImageStore
 
     var selectedSection: SidebarSection = .containers
-    var selectedContainerID: ContainerItem.ID?
+    var selectedContainerID: ContainerItem.ID? {
+        didSet {
+            guard selectedContainerID != oldValue else { return }
+            Task { await containerDetail.select(selectedContainerID) }
+        }
+    }
     var selectedImageID: ImageItem.ID?
 
     private(set) var notice: DockyardError?
@@ -68,6 +74,7 @@ final class AppModel {
         self.backend = backend
         self.system = SystemStore(backend: backend)
         self.containers = ContainerStore(backend: backend)
+        self.containerDetail = ContainerDetailStore(backend: backend)
         self.images = ImageStore(backend: backend)
         self.poller = Poller(interval: .seconds(2)) { [weak self] in
             await self?.tick()
@@ -82,6 +89,8 @@ final class AppModel {
         guard system.status.isOperational else { return }
         await containers.refresh()
         await images.refresh()
+        // Keeps uptime and status live while the user reads the detail pane.
+        await containerDetail.refresh()
     }
 
     /// Refresh now, from ⌘R or straight after an action.
