@@ -15,7 +15,7 @@ Status: `todo` | `in-progress` | `done` | `blocked`. Execute per `docs/WORKFLOW.
 | [T09](T09-pull-image.md) | Pull sheet with progress | M2 | T04 | done |
 | [T10](T10-image-delete-tag-inspect.md) | Image delete / tag / inspect | M2 | T09 | done |
 | [T11](T11-run-sheet.md) | Full Run sheet | M2 | T05, T10 | done |
-| [T12](T12-integration-tests.md) | Integration test suite against real daemon | M2 | T11 | todo |
+| [T12](T12-integration-tests.md) | Integration test suite against real daemon | M2 | T11 | done |
 | [T13](T13-build-sheet.md) | Build sheet via `container build` | M3 | T10 | todo |
 | [T14](T14-exec-terminal.md) | Exec terminal (SwiftTerm) | M3 | T07 | todo |
 | [T15](T15-volumes.md) | Volumes tab | M4 | T04 | todo |

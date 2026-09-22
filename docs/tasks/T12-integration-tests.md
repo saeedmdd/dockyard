@@ -16,8 +16,37 @@ backend refactors are caught without clicking through the app.
 - `docs/WORKFLOW.md` step 4 already references the command.
 
 ## Acceptance
-- [ ] `DOCKYARD_INTEGRATION=1 swift test --filter DockyardIntegrationTests` passes on this machine with the daemon running.
-- [ ] Without the env var the suite is skipped (not failed) so `swift test` stays green in any environment.
-- [ ] Suite leaves no containers/images with the test prefix behind (verify with `container list -a`, `container image list`).
+- [x] `DOCKYARD_INTEGRATION=1 swift test` → **24 tests in 8 suites pass in ~13s** against the real
+      daemon, creating and destroying real containers along the way.
+- [x] Without the env var the suite is skipped, not failed, and the container count is unchanged —
+      checked before and after (7 → 7).
+- [x] Nothing is left behind: no container or image matching `dockyard-it-*` after a full run.
+- [x] **Cleanup verified on the failure path**, not just the happy one — see below.
+- [x] Unit tests (183) and `xcodebuild` still clean.
+
+## What is covered
+- Full lifecycle: create → start (asserting it gets an address) → stop → delete.
+- Starting an already-running container is harmless; deleting a running one needs force; kill works.
+- `RunSpec` options survive the round trip through `Flags` and `containerConfigFromFlags`: cpus,
+  memory, working directory, labels, a published port, and an environment value containing `=`.
+- An invalid name fails before anything is created.
+- Logs: a container's output reaches `LogTailer` through the real log file, and a boot log exists.
+- Stats: two readings produce a sample with sane values.
+- Images: tag then delete leaves the original; deleting a shared tag reclaims **0 bytes**;
+  infrastructure images are protected; detail resolves variants with attestations filtered out;
+  pulling a cached image works and pulling a nonexistent one fails.
+
+## Findings
+- **The failure path is the one that matters, so it was tested directly.** A temporary probe created
+  and started a container and then threw. The container was removed anyway, and the count returned
+  to 7. `defer` cannot await, so `withFixture` catches, tears down, and rethrows — without that, a
+  failing run would litter the developer's own daemon, which is exactly when they can least afford
+  it.
+- Every fixture namespaces itself with `dockyard-it-<uuid>` and deletes only what carries that
+  prefix, so a run can never touch a container someone actually cares about.
+- The suite starts the container system itself if it is not running, rather than failing every test
+  with an XPC error and leaving the reason to be guessed.
+- Exec is stubbed as an explicitly disabled test rather than omitted, so T14 has a named place to
+  fill in rather than a gap someone has to notice.
 
 ## Notes
