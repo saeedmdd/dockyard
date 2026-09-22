@@ -4,6 +4,7 @@ import SwiftUI
 struct ImagesListView: View {
     @Environment(AppModel.self) private var model
     @State private var sortOrder = [KeyPathComparator(\ImageItem.displayReference)]
+    @State private var isShowingPullSheet = false
 
     var body: some View {
         @Bindable var model = model
@@ -11,13 +12,18 @@ struct ImagesListView: View {
         // store itself rather than through the model.
         @Bindable var images = model.images
 
-        Group {
+        VStack(spacing: 0) {
+            ForEach(model.images.pulls) { job in
+                PullProgressRow(job: job) { model.images.dismiss(job) }
+            }
+
             if model.images.visibleItems.isEmpty {
                 EmptyListView(
                     symbol: "square.stack.3d.up",
                     title: model.images.isLoadingInitially ? "Loading…" : "No images yet",
                     message: model.images.isLoadingInitially ? nil : emptyMessage
                 )
+                .frame(maxHeight: .infinity)
             } else {
                 Table(
                     model.images.visibleItems.sorted(using: sortOrder),
@@ -63,12 +69,26 @@ struct ImagesListView: View {
         .navigationTitle("Images")
         .navigationSubtitle(subtitle)
         .toolbar {
+            Button("Pull Image", systemImage: "arrow.down.circle") {
+                isShowingPullSheet = true
+            }
+            .help("Pull an image from a registry")
+
             // Sizes cost a manifest fetch per image, so they are not in the
             // list; T10 shows them in the detail pane.
             Toggle("Show runtime images", isOn: $images.showsInfrastructure)
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .help("Show the builder and VM init images the runtime manages itself")
+        }
+        .sheet(isPresented: $isShowingPullSheet) {
+            PullSheet()
+        }
+        .onChange(of: model.isPullSheetRequested) { _, requested in
+            if requested {
+                isShowingPullSheet = true
+                model.isPullSheetRequested = false
+            }
         }
     }
 

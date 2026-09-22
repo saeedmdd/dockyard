@@ -26,6 +26,7 @@ let package = Package(
                 .product(name: "ContainerAPIClient", package: "container"),
                 .product(name: "ContainerPersistence", package: "container"),
                 .product(name: "ContainerResource", package: "container"),
+                .product(name: "TerminalProgress", package: "container"),
                 // ContainerizationError has no product of its own; it ships
                 // inside the Containerization library.
                 .product(name: "Containerization", package: "containerization"),

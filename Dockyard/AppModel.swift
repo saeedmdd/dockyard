@@ -60,6 +60,8 @@ final class AppModel {
         }
     }
     var selectedImageID: ImageItem.ID?
+    /// Set by the menu command so the Images screen can open its pull sheet.
+    var isPullSheetRequested = false
 
     private(set) var notice: DockyardError?
 

@@ -22,6 +22,13 @@ struct DockyardApp: App {
                 .keyboardShortcut("r")
             }
             SidebarCommands()
+            CommandGroup(after: .newItem) {
+                Button("Pull Image…") {
+                    model.selectedSection = .images
+                    model.isPullSheetRequested = true
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+            }
         }
 
         MenuBarExtra("Dockyard", systemImage: "shippingbox") {

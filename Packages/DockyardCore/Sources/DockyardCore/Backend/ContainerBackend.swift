@@ -54,6 +54,10 @@ public protocol ContainerBackend: Sendable {
     /// `ImageItem.isInfrastructure` so the UI can filter them.
     func listImages() async throws -> [ImageItem]
 
+    /// Pulls an image, reporting progress as it goes, and unpacks it so it is
+    /// ready to run. The stream finishes when the image is usable.
+    func pullImage(reference: String, platform: String?) -> AsyncThrowingStream<PullProgress, any Error>
+
     /// Total size of an image in bytes. Separate from `listImages()` because it
     /// costs an index fetch plus a manifest fetch per image.
     func imageSize(reference: String) async throws -> Int64

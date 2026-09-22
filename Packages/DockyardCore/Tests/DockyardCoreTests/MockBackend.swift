@@ -20,6 +20,7 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         var inspect = 0
         var logHandles = 0
         var stats = 0
+        var pull = 0
     }
 
     /// Records what was asked of each container, in order.
@@ -38,6 +39,8 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
     private var _sizes: [String: Int64]
     private var _invocations: [Invocation] = []
     private var _logFiles: [String: URL] = [:]
+    private var _pullProgress: [PullProgress] = []
+    private var _pullFailure: DockyardError?
 
     init(
         containers: [ContainerItem] = [],
@@ -207,6 +210,40 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
                 throw DockyardError.upstream(code: "notFound", message: "no logs for \(id)")
             }
             return ContainerLogHandles(stdio: try FileHandle(forReadingFrom: url), boot: nil)
+        }
+    }
+
+    func setPullProgress(_ progress: [PullProgress]) {
+        lock.withLock { _pullProgress = progress }
+    }
+
+    func setPullFailure(_ error: DockyardError?) {
+        lock.withLock { _pullFailure = error }
+    }
+
+    func pullImage(reference: String, platform: String?) -> AsyncThrowingStream<PullProgress, any Error> {
+        let (updates, failure) = lock.withLock { () -> ([PullProgress], DockyardError?) in
+            _calls.pull += 1
+            return (_pullProgress, _pullFailure)
+        }
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                for update in updates {
+                    try? await Task.sleep(for: .milliseconds(5))
+                    if Task.isCancelled { break }
+                    continuation.yield(update)
+                }
+                if Task.isCancelled {
+                    continuation.finish(throwing: CancellationError())
+                } else if let failure {
+                    continuation.finish(throwing: failure)
+                } else {
+                    continuation.finish()
+                }
+            }
+            continuation.onTermination = { termination in
+                if case .cancelled = termination { task.cancel() }
+            }
         }
     }
 

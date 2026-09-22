@@ -1,5 +1,6 @@
 import ContainerAPIClient
 import ContainerResource
+import ContainerizationOCI
 import Foundation
 
 /// The real backend: XPC to `container-apiserver`, via the same client
@@ -184,6 +185,63 @@ public struct LiveBackend: ContainerBackend {
                 }
                 .sorted { $0.displayReference < $1.displayReference }
         }
+    }
+
+    public func pullImage(reference: String, platform: String?) -> AsyncThrowingStream<PullProgress, any Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let config = try await configLoader.load()
+                    // Turns what the user typed into what the registry expects:
+                    // "alpine" becomes "docker.io/library/alpine:latest".
+                    let normalized = try ClientImage.normalizeReference(reference, containerSystemConfig: config)
+                    let resolvedPlatform = try Self.resolvePlatform(platform)
+
+                    let accumulator = ProgressAccumulator { progress in
+                        continuation.yield(progress)
+                    }
+
+                    // The runtime reports sizes and counts but never names the
+                    // phase: `container image pull` sets these strings on its
+                    // own progress bar rather than receiving them from the
+                    // server. Without doing the same, every pull would read
+                    // "Starting…" from beginning to end.
+                    accumulator.setPhase(description: "Fetching image", itemsName: "blobs")
+
+                    let image = try await ClientImage.pull(
+                        reference: normalized,
+                        platform: resolvedPlatform,
+                        scheme: .auto,
+                        containerSystemConfig: config,
+                        progressUpdate: accumulator.handler
+                    )
+
+                    try Task.checkCancellation()
+
+                    // Unpacking is not optional: `container image pull` does it
+                    // too, and an image that has only been fetched cannot be
+                    // run. Skipping it would leave the user with a row in the
+                    // list that fails the moment they use it.
+                    accumulator.setPhase(description: "Unpacking image", itemsName: "entries")
+                    try await image.unpack(platform: resolvedPlatform, progressUpdate: accumulator.handler)
+
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish(throwing: CancellationError())
+                } catch {
+                    continuation.finish(throwing: DockyardError(mapping: error))
+                }
+            }
+            continuation.onTermination = { termination in
+                if case .cancelled = termination { task.cancel() }
+            }
+        }
+    }
+
+    /// Resolves a platform string, falling back to this machine's.
+    private static func resolvePlatform(_ platform: String?) throws -> ContainerizationOCI.Platform? {
+        guard let platform, !platform.isEmpty else { return nil }
+        return try ContainerizationOCI.Platform(from: platform)
     }
 
     public func imageSize(reference: String) async throws -> Int64 {
