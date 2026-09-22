@@ -7,6 +7,7 @@ struct ImagesListView: View {
     @State private var isShowingPullSheet = false
     @State private var tagTarget: ImageItem?
     @State private var deletionTarget: ImageItem?
+    @State private var isShowingBuildSheet = false
 
     var body: some View {
         @Bindable var model = model
@@ -20,6 +21,9 @@ struct ImagesListView: View {
             }
             if let note = model.statusNote {
                 StatusNoteBanner(text: note) { model.dismissStatusNote() }
+            }
+            ForEach(model.builds.jobs) { job in
+                BuildJobRow(job: job) { model.builds.dismiss(job) }
             }
             ForEach(model.images.pulls) { job in
                 PullProgressRow(job: job) { model.images.dismiss(job) }
@@ -50,6 +54,11 @@ struct ImagesListView: View {
         }
         .deleteImageConfirmation(target: $deletionTarget)
         .toolbar {
+            Button("Build Image", systemImage: "hammer") {
+                isShowingBuildSheet = true
+            }
+            .help("Build an image from a Dockerfile")
+
             Button("Pull Image", systemImage: "arrow.down.circle") {
                 isShowingPullSheet = true
             }
@@ -62,6 +71,15 @@ struct ImagesListView: View {
         }
         .sheet(isPresented: $isShowingPullSheet) {
             PullSheet()
+        }
+        .sheet(isPresented: $isShowingBuildSheet) {
+            BuildSheet()
+        }
+        .onChange(of: model.isBuildSheetRequested) { _, requested in
+            if requested {
+                isShowingBuildSheet = true
+                model.isBuildSheetRequested = false
+            }
         }
         .onChange(of: model.isPullSheetRequested) { _, requested in
             if requested {

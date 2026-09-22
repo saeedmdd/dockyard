@@ -174,6 +174,16 @@ public struct CLIRunner: DaemonController {
         run(["system", "start"])
     }
 
+    /// `container build`, run in the build context's folder.
+    ///
+    /// The builder is a container of its own that the CLI starts on demand —
+    /// the first build after a restart therefore spends a while bringing it up,
+    /// and that appears in the streamed output rather than as an unexplained
+    /// pause.
+    public func build(_ spec: BuildSpec) -> AsyncThrowingStream<CLILine, any Error> {
+        run(spec.commandArguments(), currentDirectory: spec.contextDirectory)
+    }
+
     /// `container system stop`.
     ///
     /// This also stops every running container first (upstream gives them

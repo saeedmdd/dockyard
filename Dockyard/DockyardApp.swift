@@ -29,6 +29,12 @@ struct DockyardApp: App {
                 }
                 .keyboardShortcut("n")
 
+                Button("Build Image…") {
+                    model.selectedSection = .images
+                    model.isBuildSheetRequested = true
+                }
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+
                 Button("Pull Image…") {
                     model.selectedSection = .images
                     model.isPullSheetRequested = true

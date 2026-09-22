@@ -59,6 +59,7 @@ final class AppModel {
     let images: ImageStore
     let imageDetail: ImageDetailStore
     let run: RunStore
+    let builds: BuildStore
 
     var selectedSection: SidebarSection = .containers
     var selectedContainerID: ContainerItem.ID? {
@@ -75,6 +76,7 @@ final class AppModel {
     }
     /// Set by the menu command so the Images screen can open its pull sheet.
     var isPullSheetRequested = false
+    var isBuildSheetRequested = false
     /// Set by the menu command or an image's Run button; carries the image to
     /// pre-fill when there is one.
     var runSheetRequest: RunSheetRequest?
@@ -100,6 +102,8 @@ final class AppModel {
         self.images = ImageStore(backend: backend)
         self.imageDetail = ImageDetailStore(backend: backend)
         self.run = RunStore(backend: backend)
+        let images = self.images
+        self.builds = BuildStore { await images.refresh() }
         self.poller = Poller(interval: .seconds(2)) { [weak self] in
             await self?.tick()
         }
