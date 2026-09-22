@@ -91,6 +91,10 @@ struct ImageDetailView: View {
 
             if let item {
                 HStack(spacing: 8) {
+                    Button("Run…", systemImage: "play.fill") {
+                        model.runSheetRequest = RunSheetRequest(image: item)
+                    }
+                    .help("Create a container from this image")
                     Button("Tag…", systemImage: "tag") { tagTarget = item }
                     Button("Delete…", systemImage: "trash") { deletionTarget = item }
                         .disabled(item.isInfrastructure)

@@ -18,6 +18,8 @@ let package = Package(
         // Already in the graph via the two above; declared so `FilePath` can be
         // used directly when bridging upstream paths to `URL`.
         .package(url: "https://github.com/apple/swift-system.git", from: "1.6.4"),
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
+        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
     ],
     targets: [
         .target(
@@ -27,6 +29,8 @@ let package = Package(
                 .product(name: "ContainerPersistence", package: "container"),
                 .product(name: "ContainerResource", package: "container"),
                 .product(name: "TerminalProgress", package: "container"),
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 // ContainerizationError has no product of its own; it ships
                 // inside the Containerization library.
                 .product(name: "Containerization", package: "containerization"),

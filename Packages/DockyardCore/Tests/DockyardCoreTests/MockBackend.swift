@@ -25,6 +25,7 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         var imageInspect = 0
         var deleteImage = 0
         var tagImage = 0
+        var createContainer = 0
     }
 
     /// Records what was asked of each container, in order.
@@ -45,6 +46,8 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
     private var _logFiles: [String: URL] = [:]
     private var _pullProgress: [PullProgress] = []
     private var _pullFailure: DockyardError?
+    private var _createProgress: [PullProgress] = []
+    private var _createdCount = 0
 
     init(
         containers: [ContainerItem] = [],
@@ -320,6 +323,43 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
                     digest: image.digest, mediaType: image.mediaType, isInfrastructure: false
                 )
             )
+        }
+    }
+
+    func setCreateProgress(_ progress: [PullProgress]) {
+        lock.withLock { _createProgress = progress }
+    }
+
+    func createContainer(spec: RunSpec) -> AsyncThrowingStream<CreateProgress, any Error> {
+        let (updates, failure, id) = lock.withLock { () -> ([PullProgress], DockyardError?, String) in
+            _calls.createContainer += 1
+            _createdCount += 1
+            return (_createProgress, _failure, "created-\(_createdCount)")
+        }
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                if let failure {
+                    continuation.finish(throwing: failure)
+                    return
+                }
+                for update in updates {
+                    try? await Task.sleep(for: .milliseconds(5))
+                    if Task.isCancelled { break }
+                    continuation.yield(.working(update))
+                }
+                if Task.isCancelled {
+                    continuation.finish(throwing: CancellationError())
+                } else {
+                    self.lock.withLock {
+                        self._containers.append(.stub(id: id, status: .stopped))
+                    }
+                    continuation.yield(.created(id: id))
+                    continuation.finish()
+                }
+            }
+            continuation.onTermination = { termination in
+                if case .cancelled = termination { task.cancel() }
+            }
         }
     }
 

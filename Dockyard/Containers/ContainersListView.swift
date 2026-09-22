@@ -6,6 +6,7 @@ struct ContainersListView: View {
     @State private var sortOrder = [KeyPathComparator(\ContainerItem.id)]
     @State private var deletionTarget: ContainerItem?
     @State private var isConfirmingPrune = false
+    @State private var runRequest: RunSheetRequest?
 
     private var actions: ContainerActions { ContainerActions(model: model) }
 
@@ -42,6 +43,15 @@ struct ContainersListView: View {
         .navigationSubtitle(subtitle)
         .toolbar { toolbarContent }
         .deleteContainerConfirmation(target: $deletionTarget, actions: actions)
+        .sheet(item: $runRequest) { request in
+            RunSheet(image: request.image)
+        }
+        .onChange(of: model.runSheetRequest?.id) { _, _ in
+            if let request = model.runSheetRequest {
+                runRequest = request
+                model.runSheetRequest = nil
+            }
+        }
         .confirmationDialog(
             "Delete all stopped containers?",
             isPresented: $isConfirmingPrune,
@@ -136,6 +146,11 @@ struct ContainersListView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup {
             let selected = model.selectedContainerID.flatMap { model.containers.item(id: $0) }
+
+            Button("Run", systemImage: "plus") {
+                runRequest = RunSheetRequest(image: nil)
+            }
+            .help("Create and run a container")
 
             Button("Start", systemImage: "play.fill") {
                 if let selected { actions.start(selected) }

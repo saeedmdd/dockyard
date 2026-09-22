@@ -2,6 +2,7 @@ import ContainerAPIClient
 import ContainerResource
 import ContainerizationOCI
 import Foundation
+import Logging
 
 /// The real backend: XPC to `container-apiserver`, via the same client
 /// libraries the `container` CLI uses.
@@ -105,6 +106,66 @@ public struct LiveBackend: ContainerBackend {
             return ContainerLogHandles(stdio: stdio, boot: handles.count > 1 ? handles[1] : nil)
         }
     }
+
+    public func createContainer(spec: RunSpec) -> AsyncThrowingStream<CreateProgress, any Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let config = try await configLoader.load()
+                    // Same two steps the CLI takes, in the same order: mint an
+                    // id from the requested name, then validate it with the
+                    // runtime's own rule rather than a guess at it.
+                    let id = Utility.createContainerID(name: spec.trimmedName.isEmpty ? nil : spec.trimmedName)
+                    try Utility.validEntityName(id)
+
+                    let flags = try spec.toFlags()
+                    let accumulator = ProgressAccumulator { progress in
+                        continuation.yield(.working(progress))
+                    }
+
+                    // Does the heavy lifting: resolves the platform, fetches
+                    // and unpacks the image if absent, fetches the kernel, and
+                    // builds the configuration — applying exactly the
+                    // validation `container run` applies.
+                    let (configuration, kernel, initImage) = try await Utility.containerConfigFromFlags(
+                        id: id,
+                        image: spec.image.trimmingCharacters(in: .whitespacesAndNewlines),
+                        arguments: spec.commandArguments,
+                        process: flags.process,
+                        management: flags.management,
+                        resource: flags.resource,
+                        registry: flags.registry,
+                        imageFetch: flags.imageFetch,
+                        containerSystemConfig: config,
+                        progressUpdate: accumulator.handler,
+                        log: Self.log
+                    )
+
+                    try Task.checkCancellation()
+
+                    try await client.create(
+                        configuration: configuration,
+                        options: ContainerCreateOptions(autoRemove: spec.removeWhenStopped),
+                        kernel: kernel,
+                        initImage: initImage
+                    )
+                    continuation.yield(.created(id: id))
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish(throwing: CancellationError())
+                } catch {
+                    continuation.finish(throwing: DockyardError(mapping: error))
+                }
+            }
+            continuation.onTermination = { termination in
+                if case .cancelled = termination { task.cancel() }
+            }
+        }
+    }
+
+    /// Upstream's APIs take a `Logger`; nothing in the app reads it, so it goes
+    /// nowhere rather than to the app's stderr.
+    private static let log = Logger(label: "com.saeedmdd.Dockyard", factory: { _ in SwiftLogNoOpLogHandler() })
 
     public func startContainer(id: String) async throws {
         try await mapErrors {

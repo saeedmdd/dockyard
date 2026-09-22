@@ -3,6 +3,12 @@ import Observation
 import SwiftUI
 
 /// Which sidebar section is selected.
+/// A request to open the Run sheet, optionally for a particular image.
+struct RunSheetRequest: Identifiable {
+    let id = UUID()
+    var image: ImageItem?
+}
+
 enum SidebarSection: String, Hashable, CaseIterable, Identifiable {
     case containers
     case images
@@ -52,6 +58,7 @@ final class AppModel {
     let stats: StatsStore
     let images: ImageStore
     let imageDetail: ImageDetailStore
+    let run: RunStore
 
     var selectedSection: SidebarSection = .containers
     var selectedContainerID: ContainerItem.ID? {
@@ -68,6 +75,9 @@ final class AppModel {
     }
     /// Set by the menu command so the Images screen can open its pull sheet.
     var isPullSheetRequested = false
+    /// Set by the menu command or an image's Run button; carries the image to
+    /// pre-fill when there is one.
+    var runSheetRequest: RunSheetRequest?
 
     private(set) var notice: DockyardError?
 
@@ -89,6 +99,7 @@ final class AppModel {
         self.stats = StatsStore(backend: backend)
         self.images = ImageStore(backend: backend)
         self.imageDetail = ImageDetailStore(backend: backend)
+        self.run = RunStore(backend: backend)
         self.poller = Poller(interval: .seconds(2)) { [weak self] in
             await self?.tick()
         }

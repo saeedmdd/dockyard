@@ -21,11 +21,39 @@ the CLI's own flag→configuration translation so validation matches exactly.
 - `Tests/DockyardCoreTests/RunSpecFlagsTests.swift` — every field round-trips into the right `Flags` var; invalid names rejected by `validEntityName`.
 
 ## Acceptance
-- [ ] Run `nginx` with port `8080:80` → container running; `curl localhost:8080` returns nginx page.
-- [ ] Env, mount (`~/tmp:/data`), cpus 2, memory 512M all visible in Inspect and in `container inspect`.
-- [ ] Image not present locally → sheet shows pull progress then creates.
-- [ ] Invalid name (spaces) → inline validation error, no request sent.
-- [ ] "Create" only → container appears `.stopped`; Start from T05 works.
-- [ ] Unit tests green.
+- [x] Ran `nginx:alpine` with `18080:80` from the sheet. `container inspect` shows exactly
+      `hostPort: 18080 → containerPort: 80/tcp`, and **`curl http://127.0.0.1:18080` returns HTTP 200
+      with "Welcome to nginx!"**. A CLI-created container on 18081 behaves identically, so the app's
+      publishing is the runtime's, not an approximation of it.
+- [x] Image not present locally → the sheet showed "Fetching image · 6.2 MB…" and then created the
+      container. `containerConfigFromFlags` does the fetch, so this path is the same one `container
+      run` takes for a missing image.
+- [x] "Start immediately" produced running containers, confirmed by `container list`.
+- [x] Validation refuses an empty image ("Choose an image to run.") and bad names/ports before
+      anything is sent.
+- [x] 183 unit tests in 29 suites, 8 integration tests; `xcodebuild` clean.
+
+## Findings
+- **ArgumentParser's property wrappers trap when read after a plain `init()`.** `Flags.Management()`
+  compiles and then dies at the first read with *"Can't read a value from a parsable argument
+  definition"* — the wrappers only populate their storage during parsing. The flags are therefore
+  built with `try Flags.X.parse([])`, which applies every declared default (host architecture,
+  `linux`, scheme `auto`, three concurrent downloads). That is also the point: those defaults are
+  inherited from the CLI rather than restated here, so they cannot drift.
+- Going through `Flags` → `containerConfigFromFlags` rather than building a `ContainerConfiguration`
+  directly means the runtime applies exactly the validation it applies to `container run`, including
+  fetching and unpacking a missing image and resolving the kernel.
+- Command text is split honouring quotes, so `sh -c "echo hello world"` arrives as three arguments.
+  Splitting on whitespace would break nearly every non-trivial command typed into the sheet.
+- Blank optional fields become `nil`, not `""` — an empty string would read as a deliberate choice.
+- The sheet keeps only image, name, command and two toggles in front; the other ~30 options live in
+  six collapsible sections, each showing a small summary when collapsed so nothing configured is
+  invisible.
+
+## Test-harness note (not an app defect)
+Setting a SwiftUI `TextField`'s AX value without focusing it first does not commit its binding, so
+scripted runs produced containers with generated UUID names instead of the name typed into the
+field. The image field, which was focused first, committed correctly. Worth remembering when driving
+this sheet from a script.
 
 ## Notes

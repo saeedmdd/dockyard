@@ -36,6 +36,12 @@ public protocol ContainerBackend: Sendable {
     /// watching a file rather than reading a stream.
     func logHandles(id: String) async throws -> ContainerLogHandles
 
+    /// Creates a container from a `RunSpec`, fetching and unpacking the image
+    /// if it is not already present. Progress covers that fetch, so the sheet
+    /// can show the same detail a pull does. The stream's final value carries
+    /// the new container's id.
+    func createContainer(spec: RunSpec) -> AsyncThrowingStream<CreateProgress, any Error>
+
     /// Boots a stopped container and starts its init process, detached.
     /// A container that is already running is left alone.
     func startContainer(id: String) async throws

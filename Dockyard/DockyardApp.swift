@@ -23,6 +23,12 @@ struct DockyardApp: App {
             }
             SidebarCommands()
             CommandGroup(after: .newItem) {
+                Button("Run Container…") {
+                    model.selectedSection = .containers
+                    model.runSheetRequest = RunSheetRequest(image: nil)
+                }
+                .keyboardShortcut("n")
+
                 Button("Pull Image…") {
                     model.selectedSection = .images
                     model.isPullSheetRequested = true
