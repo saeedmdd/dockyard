@@ -27,6 +27,12 @@ public protocol ContainerBackend: Sendable {
     /// matching `container inspect`.
     func containerInspectJSON(id: String) async throws -> String
 
+    /// Open file handles for a container's logs.
+    ///
+    /// These are ordinary files the runtime appends to, so following one means
+    /// watching a file rather than reading a stream.
+    func logHandles(id: String) async throws -> ContainerLogHandles
+
     /// Boots a stopped container and starts its init process, detached.
     /// A container that is already running is left alone.
     func startContainer(id: String) async throws

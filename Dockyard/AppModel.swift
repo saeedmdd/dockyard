@@ -48,6 +48,7 @@ final class AppModel {
     let system: SystemStore
     let containers: ContainerStore
     let containerDetail: ContainerDetailStore
+    let logs: LogStore
     let images: ImageStore
 
     var selectedSection: SidebarSection = .containers
@@ -75,6 +76,7 @@ final class AppModel {
         self.system = SystemStore(backend: backend)
         self.containers = ContainerStore(backend: backend)
         self.containerDetail = ContainerDetailStore(backend: backend)
+        self.logs = LogStore(backend: backend)
         self.images = ImageStore(backend: backend)
         self.poller = Poller(interval: .seconds(2)) { [weak self] in
             await self?.tick()

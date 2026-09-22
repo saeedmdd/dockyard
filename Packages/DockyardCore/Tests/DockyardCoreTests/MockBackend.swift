@@ -18,6 +18,7 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         var delete = 0
         var detail = 0
         var inspect = 0
+        var logHandles = 0
     }
 
     /// Records what was asked of each container, in order.
@@ -35,6 +36,7 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
     private var _failure: DockyardError?
     private var _sizes: [String: Int64]
     private var _invocations: [Invocation] = []
+    private var _logFiles: [String: URL] = [:]
 
     init(
         containers: [ContainerItem] = [],
@@ -169,6 +171,22 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
             }
             return "{\n  \"id\" : \"\(id)\"\n}"
         }
+    }
+
+    /// Backed by a real temp file so tailing behaves as it does in the app.
+    func logHandles(id: String) async throws -> ContainerLogHandles {
+        try lock.withLock {
+            _calls.logHandles += 1
+            if let _failure { throw _failure }
+            guard let url = _logFiles[id] else {
+                throw DockyardError.upstream(code: "notFound", message: "no logs for \(id)")
+            }
+            return ContainerLogHandles(stdio: try FileHandle(forReadingFrom: url), boot: nil)
+        }
+    }
+
+    func setLogFile(_ url: URL, for id: String) {
+        lock.withLock { _logFiles[id] = url }
     }
 
     // MARK: - Lifecycle

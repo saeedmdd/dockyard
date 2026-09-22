@@ -73,6 +73,21 @@ public struct LiveBackend: ContainerBackend {
         }
     }
 
+    public func logHandles(id: String) async throws -> ContainerLogHandles {
+        try await mapErrors {
+            // Upstream's order, as `container logs` relies on it: index 0 is
+            // the container's stdio, index 1 is the VM boot log.
+            let handles = try await client.logs(id: id)
+            guard let stdio = handles.first else {
+                throw DockyardError.upstream(
+                    code: "invalidState",
+                    message: "The runtime returned no log files for this container."
+                )
+            }
+            return ContainerLogHandles(stdio: stdio, boot: handles.count > 1 ? handles[1] : nil)
+        }
+    }
+
     public func startContainer(id: String) async throws {
         try await mapErrors {
             let container = try await client.get(id: id)
