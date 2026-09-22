@@ -24,6 +24,18 @@ task whose `Depends on` list is not all `done`.
 ## 4. Test
 
 - `cd Packages/DockyardCore && swift build && swift test` — must be green.
+  - First resolution downloads ~200 MB across 16 repos. On a flaky link SwiftPM aborts with
+    `fatal: unable to access '...': SSL connection timeout`. Re-run — the fetch cache in
+    `~/.swiftpm/cache/repositories` persists, so each attempt makes progress. To make aborts
+    less likely, export before resolving:
+    ```sh
+    export GIT_CONFIG_COUNT=3 \
+      GIT_CONFIG_KEY_0=http.version   GIT_CONFIG_VALUE_0=HTTP/1.1 \
+      GIT_CONFIG_KEY_1=http.lowSpeedLimit GIT_CONFIG_VALUE_1=0 \
+      GIT_CONFIG_KEY_2=http.lowSpeedTime  GIT_CONFIG_VALUE_2=999999
+    ```
+  - Never leave two SwiftPM processes running against the same `.build`: they deadlock on its
+    lock and look like a hang. `pkill -f swift-package` before retrying.
 - If the task has integration criteria: `container system start` then `DOCKYARD_INTEGRATION=1 swift test --filter DockyardIntegrationTests`.
 - `xcodebuild -project Dockyard.xcodeproj -scheme Dockyard -configuration Debug build` — must succeed with zero warnings introduced by this task.
 

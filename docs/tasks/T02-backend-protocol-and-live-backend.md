@@ -13,6 +13,14 @@ upstream client libraries; `MockBackend` (tests) implements it in-memory. Views 
 - `Sources/ContainerCommands/Application.swift` — `loadContainerSystemConfig()` (copy the body; do not depend on `ContainerCommands`)
 - `Sources/ContainerResource/Container/ContainerSnapshot.swift` — `status: RuntimeStatus`, `networks`, `startedDate`, `configuration`
 
+Confirmed while doing T01:
+- `ContainerClient` is a `public struct ... Sendable` holding a reusable `XPCClient`, so `LiveBackend`
+  can be a `Sendable` struct; an actor is only needed for cached `ContainerSystemConfig`.
+- Every client call wraps failures in `ContainerizationError` (`.internalError`, with `cause`), so
+  `DockyardError.init(mapping:)` must unwrap that and inspect `cause` for the XPC
+  `"Connection invalid"` case. Add `.product(name: "ContainerizationError", package: "containerization")`
+  to the `DockyardCore` target dependencies.
+
 ## Files
 - `Sources/DockyardCore/Backend/ContainerBackend.swift`
   ```swift

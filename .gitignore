@@ -24,3 +24,6 @@ Packages/*/.swiftpm/
 *.dmg
 *.zip
 ExportOptions.local.plist
+
+# Xcode user state inside the generated workspace
+Dockyard.xcodeproj/project.xcworkspace/xcuserdata/

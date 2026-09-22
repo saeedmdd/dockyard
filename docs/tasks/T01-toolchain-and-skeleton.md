@@ -35,10 +35,32 @@ resolves `apple/container` at exactly `1.0.0`. Nothing functional yet.
 3. Create the Xcode project, add the local package (File → Add Package Dependencies → Add Local), link `DockyardCore` to the app target.
 4. `xcodebuild -scheme Dockyard build` succeeds; app launches to an empty window + menu bar item.
 
+## Gotchas found while executing
+- Upstream's git history is small (~2 MB) but the *transitive* graph is not: containerization pulls
+  zstd (~53 MB), Yams (~29 MB), grpc-swift, swift-nio, async-http-client, swift-protobuf, swift-toml.
+  First resolution is a multi-minute download.
+- `swift` commands need `--disable-sandbox` in sandboxed shells (see `docs/WORKFLOW.md`).
+- The `.xcodeproj` uses a `PBXFileSystemSynchronizedRootGroup` for `Dockyard/`, so new source files
+  are picked up automatically — later tasks never edit `project.pbxproj`. Files that must *not* be
+  compiled into the app (e.g. the entitlements) live outside that folder, in `Config/`.
+
 ## Acceptance
-- [ ] `cd Packages/DockyardCore && swift build` succeeds.
-- [ ] `xcodebuild -project Dockyard.xcodeproj -scheme Dockyard build` succeeds.
-- [ ] App launches, shows window and menu bar icon, quits cleanly.
-- [ ] `Package.resolved` pins `container` to `1.0.0` and `containerization` to `0.33.3`.
+- [x] `cd Packages/DockyardCore && swift build` succeeds. (3328 tasks, 83.5s, no errors/warnings)
+- [x] `swift test` green — 2 tests, 1 suite; integration suite correctly skipped.
+- [x] `xcodebuild -project Dockyard.xcodeproj -scheme Dockyard build` succeeds. **BUILD SUCCEEDED**,
+      no errors or warnings. Two benign notes: no AppIntents.framework, and "Disabling hardened
+      runtime with ad-hoc codesigning" (expected until T20 supplies a Developer ID).
+- [x] App launches, shows window and menu bar icon, quits cleanly. Verified via the accessibility
+      API: window `Dockyard` present, menu bar 2 has 1 status item which opens its panel, and the
+      window renders `Dockyard 0.1.0` / `Linked against container 1.0.0` — proving `DockyardCore`
+      is linked and executing, not merely compiled. Bundle id `com.saeedmdd.Dockyard`, version
+      `0.1.0`, signature adhoc.
+- [x] `Package.resolved` pins `container` 1.0.0 and `containerization` 0.33.3 (34 pins total).
 
 ## Notes
+- Xcode 27.0 / Swift 6.4 installed (exceeds the 6.2 minimum).
+- Resolution took several attempts: GitHub connectivity here is intermittent and SwiftPM aborts the
+  whole resolve on one repo's `SSL connection timeout`. The fetch cache persists, so retrying
+  advances each time. ~357 MB cached across 19 repos before it completed.
+- Both `Package.resolved` files are committed: the package's own, and Xcode's copy at
+  `Dockyard.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`.

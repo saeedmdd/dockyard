@@ -4,7 +4,7 @@ Status: `todo` | `in-progress` | `done` | `blocked`. Execute per `docs/WORKFLOW.
 
 | ID | Task | Milestone | Depends on | Status |
 |----|------|-----------|------------|--------|
-| [T01](T01-toolchain-and-skeleton.md) | Toolchain + project skeleton | M0 | — | todo |
+| [T01](T01-toolchain-and-skeleton.md) | Toolchain + project skeleton | M0 | — | done |
 | [T02](T02-backend-protocol-and-live-backend.md) | Backend protocol, models, LiveBackend | M0 | T01 | todo |
 | [T03](T03-daemon-state-and-onboarding.md) | Daemon state machine, CLIRunner, onboarding | M0 | T02 | todo |
 | [T04](T04-main-window-and-menubar.md) | Main window, tables, poller, menu bar | M0 | T03 | todo |
