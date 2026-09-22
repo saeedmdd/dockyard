@@ -35,6 +35,7 @@ let package = Package(
                 // inside the Containerization library.
                 .product(name: "Containerization", package: "containerization"),
                 .product(name: "ContainerizationOCI", package: "containerization"),
+                .product(name: "ContainerizationOS", package: "containerization"),
                 .product(name: "SystemPackage", package: "swift-system"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]

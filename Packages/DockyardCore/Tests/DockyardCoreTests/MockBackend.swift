@@ -26,6 +26,7 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         var deleteImage = 0
         var tagImage = 0
         var createContainer = 0
+        var exec = 0
     }
 
     /// Records what was asked of each container, in order.
@@ -363,6 +364,31 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         }
     }
 
+    func exec(_ request: ExecRequest) async throws -> any ExecSessionHandle {
+        try lock.withLock {
+            _calls.exec += 1
+            if let _failure { throw _failure }
+            guard let container = _containers.first(where: { $0.id == request.containerID }) else {
+                throw DockyardError.upstream(code: "notFound", message: "no such container")
+            }
+            guard container.status == .running else {
+                throw DockyardError.upstream(
+                    code: "invalidState",
+                    message: "The container isn’t running, so there’s nothing to open a shell in."
+                )
+            }
+            return MockExecSession()
+        }
+    }
+
+    func execCapturing(containerID: String, command: [String]) async throws -> (output: String, exitCode: Int32) {
+        try lock.withLock {
+            _calls.exec += 1
+            if let _failure { throw _failure }
+            return (command.joined(separator: " "), 0)
+        }
+    }
+
     func setLogFile(_ url: URL, for id: String) {
         lock.withLock { _logFiles[id] = url }
     }
@@ -530,5 +556,35 @@ extension ImageItem {
             mediaType: "application/vnd.oci.image.index.v1+json",
             isInfrastructure: isInfrastructure
         )
+    }
+}
+
+/// An exec session that simply echoes whatever it is sent.
+final class MockExecSession: ExecSessionHandle, @unchecked Sendable {
+    let output: AsyncStream<Data>
+    private let continuation: AsyncStream<Data>.Continuation
+    private let lock = NSLock()
+    private(set) var lastSize: (columns: Int, rows: Int)?
+    private(set) var isClosed = false
+
+    init() {
+        let (stream, continuation) = AsyncStream<Data>.makeStream()
+        output = stream
+        self.continuation = continuation
+    }
+
+    func send(_ data: Data) async {
+        continuation.yield(data)
+    }
+
+    func resize(columns: Int, rows: Int) async {
+        lock.withLock { lastSize = (columns, rows) }
+    }
+
+    func waitForExit() async -> Int32 { 0 }
+
+    func close() async {
+        lock.withLock { isClosed = true }
+        continuation.finish()
     }
 }

@@ -37,7 +37,10 @@ task whose `Depends on` list is not all `done`.
   - Never leave two SwiftPM processes running against the same `.build`: they deadlock on its
     lock and look like a hang. `pkill -f swift-package` before retrying.
 - If the task has integration criteria: `container system start` then `DOCKYARD_INTEGRATION=1 swift test --filter DockyardIntegrationTests`.
-- `xcodebuild -project Dockyard.xcodeproj -scheme Dockyard -configuration Debug build` — must succeed with zero warnings introduced by this task.
+- `xcodebuild -project Dockyard.xcodeproj -scheme Dockyard -configuration Debug -skipPackagePluginValidation build`
+  — must succeed with zero warnings introduced by this task. The flag is required because SwiftTerm
+  ships a build plugin; in Xcode you get a one-time "Trust & Enable" prompt instead. SwiftTerm also
+  needs Xcode's Metal Toolchain (`xcodebuild -downloadComponent MetalToolchain`).
 
 ## 5. Manual check
 

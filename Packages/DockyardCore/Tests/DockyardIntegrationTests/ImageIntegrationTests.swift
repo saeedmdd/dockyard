@@ -104,12 +104,4 @@ struct ImageIntegrationTests {
     }
 }
 
-/// Placeholder for the exec paths, filled in with T14's terminal work.
-@Suite(.enabled(if: IntegrationGate.isEnabled), .serialized)
-struct ExecIntegrationTests {
 
-    @Test(.disabled("Exec arrives with the terminal in T14"))
-    func execEchoesOutput() async throws {
-        // T14: create a container, exec `echo hi`, assert stdout is "hi".
-    }
-}

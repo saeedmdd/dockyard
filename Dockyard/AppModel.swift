@@ -89,7 +89,9 @@ final class AppModel {
     private var isWindowVisible = false { didSet { syncPolling() } }
     private var isMenuOpen = false { didSet { syncPolling() } }
 
-    private let backend: any ContainerBackend
+    /// Exposed so views that drive a session directly (the terminal) can
+    /// reach it without a store standing in the middle.
+    let backend: any ContainerBackend
     private(set) var poller: Poller!
 
     init(backend: any ContainerBackend = LiveBackend()) {

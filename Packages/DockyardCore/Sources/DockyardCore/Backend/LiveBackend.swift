@@ -92,6 +92,130 @@ public struct LiveBackend: ContainerBackend {
         }
     }
 
+    public func exec(_ request: ExecRequest) async throws -> any ExecSessionHandle {
+        try await mapErrors {
+            let container = try await client.get(id: request.containerID)
+            guard container.status == .running else {
+                throw DockyardError.upstream(
+                    code: "invalidState",
+                    message: "The container isn’t running, so there’s nothing to open a shell in."
+                )
+            }
+
+            let shell = try await firstAvailableShell(
+                in: container,
+                candidates: request.shellCandidates
+            )
+
+            // Starting from the container's own init process is what upstream's
+            // exec does, and it matters: the image's PATH and other variables
+            // come with it, so the shell can find its own binaries.
+            var configuration = container.configuration.initProcess
+            configuration.executable = shell
+            configuration.arguments = []
+            configuration.terminal = request.allocateTerminal
+
+            let stdin = Pipe()
+            let stdout = Pipe()
+            // With a terminal the runtime merges stderr into stdout; asking for
+            // a separate stderr would leave a pipe nobody ever writes to.
+            let stderr: Pipe? = request.allocateTerminal ? nil : Pipe()
+
+            let process = try await client.createProcess(
+                containerId: container.id,
+                processId: UUID().uuidString.lowercased(),
+                configuration: configuration,
+                stdio: [
+                    stdin.fileHandleForReading,
+                    stdout.fileHandleForWriting,
+                    stderr?.fileHandleForWriting,
+                ]
+            )
+
+            let session = LiveExecSession(process: process, stdin: stdin, stdout: stdout, stderr: stderr)
+            try await process.start()
+            if request.allocateTerminal {
+                await session.resize(columns: request.columns, rows: request.rows)
+            }
+            return session
+        }
+    }
+
+    public func execCapturing(
+        containerID: String,
+        command: [String]
+    ) async throws -> (output: String, exitCode: Int32) {
+        try await mapErrors {
+            let container = try await client.get(id: containerID)
+            guard let executable = command.first else {
+                throw DockyardError.other("No command to run.")
+            }
+
+            var configuration = container.configuration.initProcess
+            configuration.executable = executable
+            configuration.arguments = Array(command.dropFirst())
+            // No terminal: stdout and stderr stay separate and nothing tries to
+            // interpret escape sequences.
+            configuration.terminal = false
+
+            let stdout = Pipe()
+            let stderr = Pipe()
+            let process = try await client.createProcess(
+                containerId: container.id,
+                processId: UUID().uuidString.lowercased(),
+                configuration: configuration,
+                stdio: [nil, stdout.fileHandleForWriting, stderr.fileHandleForWriting]
+            )
+
+            let collector = OutputBox()
+            stdout.fileHandleForReading.readabilityHandler = { collector.append($0.availableData) }
+            stderr.fileHandleForReading.readabilityHandler = { collector.append($0.availableData) }
+
+            try await process.start()
+            let exitCode = try await process.wait()
+
+            stdout.fileHandleForReading.readabilityHandler = nil
+            stderr.fileHandleForReading.readabilityHandler = nil
+            // Whatever was written between the last callback and exit.
+            collector.append((try? stdout.fileHandleForReading.readToEnd()) ?? Data())
+            collector.append((try? stderr.fileHandleForReading.readToEnd()) ?? Data())
+
+            return (collector.text, exitCode)
+        }
+    }
+
+    /// Picks the first shell that actually exists in the image.
+    ///
+    /// Minimal images routinely have only `/bin/sh`, and asking for bash in one
+    /// of those fails with an error that says nothing about shells.
+    private func firstAvailableShell(
+        in container: ContainerSnapshot,
+        candidates: [String]
+    ) async throws -> String {
+        guard candidates.count > 1 else {
+            return candidates.first ?? "/bin/sh"
+        }
+        for candidate in candidates {
+            var probe = container.configuration.initProcess
+            probe.executable = "/bin/sh"
+            probe.arguments = ["-c", "test -x \(candidate)"]
+            probe.terminal = false
+            guard
+                let process = try? await client.createProcess(
+                    containerId: container.id,
+                    processId: UUID().uuidString.lowercased(),
+                    configuration: probe,
+                    stdio: [nil, nil, nil]
+                )
+            else { continue }
+            try? await process.start()
+            if let status = try? await process.wait(), status == 0 {
+                return candidate
+            }
+        }
+        return candidates.last ?? "/bin/sh"
+    }
+
     public func logHandles(id: String) async throws -> ContainerLogHandles {
         try await mapErrors {
             // Upstream's order, as `container logs` relies on it: index 0 is

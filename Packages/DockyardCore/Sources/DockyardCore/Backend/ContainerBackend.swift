@@ -30,6 +30,13 @@ public protocol ContainerBackend: Sendable {
     /// A reading of a running container's resource counters.
     func containerStats(id: String) async throws -> RawContainerStats
 
+    /// Starts a process inside a running container and returns a handle to it.
+    func exec(_ request: ExecRequest) async throws -> any ExecSessionHandle
+
+    /// Runs a command inside a running container and collects its output.
+    /// Used for one-shot commands rather than an interactive session.
+    func execCapturing(containerID: String, command: [String]) async throws -> (output: String, exitCode: Int32)
+
     /// Open file handles for a container's logs.
     ///
     /// These are ordinary files the runtime appends to, so following one means

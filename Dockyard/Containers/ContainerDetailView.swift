@@ -79,19 +79,10 @@ struct ContainerDetailView: View {
             case .inspect:
                 InspectView(json: store.inspectJSON, title: detail.id)
             case .terminal:
-                EmptyListView(
-                    symbol: tab.symbol,
-                    title: tab.rawValue,
-                    message: comingSoon
-                )
+                if let item = model.containers.item(id: detail.id) {
+                    TerminalTab(container: item)
+                }
             }
-        }
-    }
-
-    private var comingSoon: String {
-        switch tab {
-        case .terminal: "An interactive shell arrives in T14."
-        default: ""
         }
     }
 
