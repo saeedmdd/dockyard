@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Deliberately NOT sandboxed. Dockyard needs to:
+	    - look up the mach service com.apple.container.apiserver (XPC)
+	    - read ~/Library/Application Support/com.apple.container
+	    - spawn /usr/local/bin/container for `system start|stop` and `build`
+	  App Sandbox blocks all three without temporary exceptions that the Mac App
+	  Store rejects, so distribution is Developer ID + notarization instead.
+	  See docs/PLAN.md decision 10.
+	-->
+</dict>
+</plist>
