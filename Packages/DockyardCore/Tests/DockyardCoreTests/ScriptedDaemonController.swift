@@ -14,6 +14,7 @@ final class ScriptedDaemonController: DaemonController, @unchecked Sendable {
     private var _delayPerLine: Duration
     private var _startCount = 0
     private var _stopCount = 0
+    private var _logWindows: [SystemLogWindow] = []
     /// Set when the consuming task cancels mid-stream.
     private var _wasCancelled = false
 
@@ -34,6 +35,7 @@ final class ScriptedDaemonController: DaemonController, @unchecked Sendable {
     var startCount: Int { lock.withLock { _startCount } }
     var stopCount: Int { lock.withLock { _stopCount } }
     var wasCancelled: Bool { lock.withLock { _wasCancelled } }
+    var logWindows: [SystemLogWindow] { lock.withLock { _logWindows } }
 
     func systemStart() -> AsyncThrowingStream<CLILine, any Error> {
         lock.withLock { _startCount += 1 }
@@ -42,6 +44,11 @@ final class ScriptedDaemonController: DaemonController, @unchecked Sendable {
 
     func systemStop() -> AsyncThrowingStream<CLILine, any Error> {
         lock.withLock { _stopCount += 1 }
+        return makeStream()
+    }
+
+    func systemLogs(last: SystemLogWindow) -> AsyncThrowingStream<CLILine, any Error> {
+        lock.withLock { _logWindows.append(last) }
         return makeStream()
     }
 

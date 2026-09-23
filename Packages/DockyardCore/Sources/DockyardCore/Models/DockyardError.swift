@@ -30,6 +30,14 @@ public enum DockyardError: Error, Sendable, Equatable {
     }
 }
 
+extension DockyardError {
+    /// One line, for listing several failures together — a prune that removed
+    /// most of what it swept and needs to say what it left behind.
+    public var shortReason: String {
+        errorDescription ?? "Unknown error"
+    }
+}
+
 extension DockyardError: LocalizedError {
     public var errorDescription: String? {
         switch self {

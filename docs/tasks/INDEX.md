@@ -21,6 +21,6 @@ Status: `todo` | `in-progress` | `done` | `done*` (done, one check blocked by th
 | [T15](T15-volumes.md) | Volumes tab | M4 | T04 | done |
 | [T16](T16-networks.md) | Networks tab | M4 | T04 | done |
 | [T17](T17-registry-push-save.md) | Registry login, push, save | M4 | T10 | done* |
-| [T18](T18-system-panel.md) | System panel: df, prune, versions, logs | M4 | T03 | todo |
+| [T18](T18-system-panel.md) | System panel: df, prune, versions, logs | M4 | T03 | done |
 | [T19](T19-polish-and-settings.md) | Search, shortcuts, settings, launch at login | M5 | T05–T18 | todo |
 | [T20](T20-release-pipeline.md) | Build/sign/notarize scripts, README | M5 | T19 | todo |
