@@ -42,9 +42,60 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
-      - name: Unit tests
+      # Compiling and running are separate steps so a red run says which it was
+      # without anyone opening the log: the runner has Xcode 26.6 while a
+      # developer may be on something newer, and "the tests failed" reads very
+      # differently from "the tests did not build".
+      - name: Compile the tests
         working-directory: Packages/DockyardCore
-        run: swift test
+        run: swift build --build-tests 2>&1 | tee build.log
+
+      - name: Run the unit tests
+        working-directory: Packages/DockyardCore
+        run: swift test --skip-build --xunit-output test-results.xml
+
+      - name: Report what failed
+        if: failure()
+        working-directory: Packages/DockyardCore
+        run: |
+          {
+            echo "## Failures"
+            echo
+            if [[ -f test-results.xml ]]; then
+              echo '```'
+              python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          for case in ET.parse("test-results.xml").getroot().iter("testcase"):
+              for failure in case.iter("failure"):
+                  print(f'{case.get("classname")}.{case.get("name")}')
+                  print(f'  {failure.get("message")}')
+          PY
+              echo '```'
+            else
+              echo "The tests did not get as far as running. Last lines of the build:"
+              echo '```'
+              tail -40 build.log 2>/dev/null || echo "(no build log)"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+
+          # Also as annotations: the step summary is only readable by someone
+          # opening the run page, while annotations come back from the public
+          # API, so a failure can be diagnosed without repository access.
+          if [[ -f test-results.xml ]]; then
+            python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          for case in ET.parse("test-results.xml").getroot().iter("testcase"):
+              for failure in case.iter("failure"):
+                  message = (failure.get("message") or "").replace("\n", " ")[:400]
+                  print(f'::error title={case.get("name")}::{message}')
+          PY
+          else
+            grep -E "error:" build.log 2>/dev/null | head -10 | while read -r line; do
+              echo "::error title=Build::${line}"
+            done
+          fi
 
       - name: Build the app
         run: |
