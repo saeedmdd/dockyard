@@ -1,9 +1,8 @@
 # T19 — Search, shortcuts, settings, launch at login
 
-**Milestone:** M5 · **Depends on:** T05–T18 · **Status:** done*
+**Milestone:** M5 · **Depends on:** T05–T18 · **Status:** done
 
-`done*` — everything is built and verified except the login-item toggle, which cannot be exercised
-from a development build. See "Not verifiable here".
+The login item was verified in T20, once there was a build to install. See the correction below.
 
 ## Files
 - `Models/Search.swift` — one `Searchable` rule for all four lists, plus the two sort keys that need
@@ -31,7 +30,9 @@ from a development build. See "Not verifiable here".
       `com.saeedmdd.Dockyard.pollIntervalSeconds`.
 - [x] **VoiceOver reads container status.** The name cell reports "elasticsearch-node2, Stopped" —
       the state otherwise exists only as a coloured dot in a column of its own.
-- [ ] **Launch at login** — see below.
+- [x] **Launch at login registers and unregisters.** Verified in T20 against the Release build
+      installed in `/Applications`: the toggle turned on, survived a relaunch and a reinstall, then
+      turned off and stayed off. Doing this found a bug in the code below.
 
 Also verified in the running app: search filtering ("elastic" → 3 of 6, "elastic node2" → 1 of 6),
 the no-results state and its Clear Search button, Escape clearing the field, the toast after
@@ -72,16 +73,21 @@ found: 6 containers, 9 images, 0 volumes.
   reports the clamped value — otherwise a hand-edited plist could retime the poller to something the
   settings do not hold.
 
-## Not verifiable here: launch at login
-`SMAppService.mainApp.status` reports `notFound` for a build run out of DerivedData, and the
-Settings window says so ("macOS cannot find this copy of Dockyard.") rather than showing a toggle
-that springs back. Registering a real login item needs the app installed where the system will
-accept it, which is what T20 produces; verifying it there is the right place, and installing a
-development build into `/Applications` to tick this box is not.
+## Correction: launch at login, and a bug it was hiding
 
-The surrounding logic is covered against a fake service: register, unregister, the refusal that a
-development build gets, the approval-required state the user can only undo in System Settings, and
-the lag between a successful `register()` and the status reading back.
+This task recorded launch at login as unverifiable because `SMAppService.mainApp.status` reported
+`notFound`, and concluded a signed build was needed. Both halves were wrong, and T20 showed why once
+there was something to install.
+
+The status depends on **where the app is, not how it is signed**: from `/Applications` an ad-hoc
+build registers fine. And `notFound` is not a dead end at all — it is what the system reports for an
+app that has simply never been registered. Dockyard mapped it to "macOS cannot find this copy of
+Dockyard", which put a dead-end message underneath a toggle that would have worked had anyone
+pressed it. It is now an ordinary off state; only a refusal thrown by `register()` is reported.
+
+The lesson is narrower than "development builds cannot do this": a status was read as a verdict when
+it was only a starting state, and the assumption went unchallenged because the environment made it
+expensive to test. Verifying it cost one install.
 
 ## Notes
 `nilIfEmpty` moved from a `fileprivate` in `RunSheet.swift` to `Components/StringExtras.swift`; the

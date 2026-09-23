@@ -215,6 +215,17 @@ import Testing
         #expect(item.state == .enabled)
     }
 
+    /// `SMAppService` reports `notFound` for an app that has simply never been
+    /// registered, including one sitting in /Applications that would register
+    /// fine. Presenting that as unavailable put a dead-end message beside a
+    /// toggle that worked.
+    @Test func neverRegisteredIsOfferedAsAnOrdinaryOffState() {
+        let item = LoginItem(service: FakeService(state: .disabled))
+        #expect(item.state == .disabled)
+        #expect(!item.state.isEnabled)
+        #expect(item.lastError == nil)
+    }
+
     /// Once the user turns it off in System Settings, the app cannot turn it
     /// back on and has to say so.
     @Test func approvalRequiredIsItsOwnState() {
