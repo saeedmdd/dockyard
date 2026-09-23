@@ -39,6 +39,9 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         var push = 0
         var saveImages = 0
         var loadImages = 0
+        var diskUsage = 0
+        var kernelInfo = 0
+        var prune = 0
     }
 
     /// Records what was asked of each container, in order.
@@ -66,6 +69,10 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
     private var _pullFailure: DockyardError?
     private var _createProgress: [PullProgress] = []
     private var _createdCount = 0
+    private var _diskUsage: DiskUsage = .stub()
+    private var _kernel: KernelInfo = .stub()
+    /// Names a prune reports as failures, to exercise a partial sweep.
+    private var _prunePartialFailures: [String] = []
 
     init(
         containers: [ContainerItem] = [],
@@ -105,6 +112,22 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
 
     func setContainers(_ containers: [ContainerItem]) {
         lock.withLock { _containers = containers }
+    }
+
+    func setDiskUsage(_ usage: DiskUsage) {
+        lock.withLock { _diskUsage = usage }
+    }
+
+    func setPrunePartialFailures(_ failures: [String]) {
+        lock.withLock { _prunePartialFailures = failures }
+    }
+
+    var currentImages: [ImageItem] {
+        lock.withLock { _images }
+    }
+
+    var currentVolumes: [VolumeItem] {
+        lock.withLock { _volumes }
     }
 
     /// Holds lifecycle calls open so a test can observe the in-flight state
@@ -153,6 +176,60 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
             _calls.health += 1
             if let _failure { throw _failure }
             return _health
+        }
+    }
+
+    func diskUsage() async throws -> DiskUsage {
+        try lock.withLock {
+            _calls.diskUsage += 1
+            if let _failure { throw _failure }
+            return _diskUsage
+        }
+    }
+
+    func kernelInfo() async throws -> KernelInfo {
+        try lock.withLock {
+            _calls.kernelInfo += 1
+            if let _failure { throw _failure }
+            return _kernel
+        }
+    }
+
+    /// Prunes its own state the way the live backend prunes the runtime's, so
+    /// store tests see real before/after counts rather than a canned result.
+    func prune(_ target: PruneTarget) async throws -> PruneResult {
+        try lock.withLock {
+            _calls.prune += 1
+            if let _failure { throw _failure }
+            let failures = _prunePartialFailures
+            var removed = 0
+            var reclaimed: UInt64 = 0
+            switch target {
+            case .containers:
+                let doomed = _containers.filter { $0.status == .stopped && !failures.contains($0.id) }
+                removed = doomed.count
+                reclaimed = UInt64(doomed.count) * 1_000_000
+                _containers.removeAll { doomed.contains($0) }
+            case .images:
+                let inUse = Set(_containers.map(\.image))
+                let doomed = _images.filter {
+                    !inUse.contains($0.reference) && !$0.isInfrastructure && !failures.contains($0.reference)
+                }
+                removed = doomed.count
+                reclaimed = UInt64(doomed.count) * 5_000_000
+                _images.removeAll { doomed.contains($0) }
+            case .volumes:
+                let doomed = _volumes.filter { !failures.contains($0.name) }
+                removed = doomed.count
+                reclaimed = UInt64(doomed.count) * 2_000_000
+                _volumes.removeAll { doomed.contains($0) }
+            }
+            return PruneResult(
+                target: target,
+                removedCount: removed,
+                reclaimedBytes: reclaimed,
+                failures: failures.map { "\($0): in use" }
+            )
         }
     }
 
@@ -812,6 +889,33 @@ extension NetworkItem {
             gateway: "192.168.64.1",
             isBuiltin: isBuiltin,
             labels: [:]
+        )
+    }
+}
+
+extension DiskUsage {
+    static func stub(
+        images: ResourceUsage = ResourceUsage(
+            total: 9, active: 3, sizeInBytes: 1_200_000_000, reclaimableBytes: 800_000_000
+        ),
+        containers: ResourceUsage = ResourceUsage(
+            total: 6, active: 2, sizeInBytes: 40_000_000, reclaimableBytes: 25_000_000
+        ),
+        volumes: ResourceUsage = ResourceUsage(
+            total: 2, active: 1, sizeInBytes: 500_000_000, reclaimableBytes: 100_000_000
+        )
+    ) -> DiskUsage {
+        DiskUsage(images: images, containers: containers, volumes: volumes)
+    }
+}
+
+extension KernelInfo {
+    static func stub() -> KernelInfo {
+        KernelInfo(
+            path: "/Library/Application Support/com.apple.container/kernel/vmlinux",
+            architecture: "arm64",
+            os: "linux",
+            arguments: ["console=hvc0", "tsc=reliable", "panic=0"]
         )
     }
 }

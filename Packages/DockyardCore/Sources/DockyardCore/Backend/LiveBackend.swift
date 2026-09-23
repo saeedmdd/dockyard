@@ -12,7 +12,17 @@ import Logging
 /// returns is a Dockyard value type, and everything it throws is a
 /// `DockyardError`.
 public struct LiveBackend: ContainerBackend {
-    private let client = ContainerClient()
+    /// A fresh client per call, which is what the CLI does.
+    ///
+    /// `ContainerClient` holds a reusable XPC connection, and a command-line
+    /// tool makes one and exits. An app outlives the daemon: after a `system
+    /// stop` and `start` from the System panel, a client made before the stop
+    /// answered `list` with an **empty array** rather than an error, so the
+    /// Containers screen said "No containers yet" while the CLI listed six, and
+    /// only relaunching the app fixed it. The image and volume calls were
+    /// unaffected because upstream exposes those as statics that build a client
+    /// each time.
+    private var client: ContainerClient { ContainerClient() }
     private let configLoader = SystemConfigLoader()
 
     public init() {}
@@ -30,6 +40,143 @@ public struct LiveBackend: ContainerBackend {
                 appRoot: health.appRoot,
                 installRoot: health.installRoot,
                 logRoot: health.logRoot.map { URL(fileURLWithPath: $0.string) }
+            )
+        }
+    }
+
+    public func diskUsage() async throws -> DiskUsage {
+        try await mapErrors {
+            let stats = try await ClientDiskUsage.get()
+            return DiskUsage(
+                images: ResourceUsage(stats.images),
+                containers: ResourceUsage(stats.containers),
+                volumes: ResourceUsage(stats.volumes)
+            )
+        }
+    }
+
+    public func kernelInfo() async throws -> KernelInfo {
+        try await mapErrors {
+            // The runtime keeps one kernel per platform, and the only platform
+            // it runs containers on is this Mac's own architecture under Linux.
+            let kernel = try await ClientKernel.getDefaultKernel(for: .linuxArm)
+            return KernelInfo(
+                path: kernel.path.path,
+                architecture: kernel.platform.architecture.rawValue,
+                os: kernel.platform.os.rawValue,
+                arguments: kernel.kernelArgs
+            )
+        }
+    }
+
+    public func prune(_ target: PruneTarget) async throws -> PruneResult {
+        switch target {
+        case .containers: try await pruneContainers()
+        case .images: try await pruneImages()
+        case .volumes: try await pruneVolumes()
+        }
+    }
+
+    /// Mirrors `container prune`: every stopped container, machines excluded.
+    private func pruneContainers() async throws -> PruneResult {
+        try await mapErrors {
+            let stopped = try await client.list(
+                filters: ContainerListFilters(status: .stopped).withoutMachines()
+            )
+            var removed = 0
+            var reclaimed: UInt64 = 0
+            var failures: [String] = []
+            for container in stopped {
+                do {
+                    // Asked before the delete, because afterwards there is
+                    // nothing left to measure.
+                    let size = try await client.diskUsage(id: container.id)
+                    try await client.delete(id: container.id)
+                    removed += 1
+                    reclaimed += size
+                } catch {
+                    failures.append("\(container.id): \(DockyardError(mapping: error).shortReason)")
+                }
+            }
+            return PruneResult(
+                target: .containers,
+                removedCount: removed,
+                reclaimedBytes: reclaimed,
+                failures: failures
+            )
+        }
+    }
+
+    /// Mirrors `container image prune --all`, minus the runtime's own images.
+    private func pruneImages() async throws -> PruneResult {
+        try await mapErrors {
+            let config = try await configLoader.load()
+            let images = try await ClientImage.list()
+            let inUse = Set(
+                try await client.list(filters: ContainerListFilters.all)
+                    .map(\.configuration.image.reference)
+            )
+            let unused = images.filter { image in
+                guard !inUse.contains(image.reference) else { return false }
+                // Upstream's `--all` does not make this exception, so it can
+                // delete the builder and init images out from under itself and
+                // leave the next build to re-pull them. Dockyard keeps them.
+                return !Utility.isInfraImage(
+                    name: image.reference,
+                    builderImage: config.build.image,
+                    initImage: config.vminit.image
+                )
+            }
+
+            var removed = 0
+            var failures: [String] = []
+            for image in unused {
+                do {
+                    try await ClientImage.delete(reference: image.reference, garbageCollect: false)
+                    removed += 1
+                } catch {
+                    failures.append("\(image.reference): \(DockyardError(mapping: error).shortReason)")
+                }
+            }
+            // Untagging is what the loop above does; the space only comes back
+            // when the layers nothing points at any more are collected.
+            let (_, reclaimed) = try await ClientImage.cleanUpOrphanedBlobs()
+            return PruneResult(
+                target: .images,
+                removedCount: removed,
+                reclaimedBytes: reclaimed,
+                failures: failures
+            )
+        }
+    }
+
+    /// Mirrors `container volume prune`.
+    private func pruneVolumes() async throws -> PruneResult {
+        try await mapErrors {
+            let volumes = try await ClientVolume.list()
+            let inUse = Set(
+                try await client.list(filters: ContainerListFilters.all)
+                    .flatMap(\.configuration.mounts)
+                    .compactMap { $0.isVolume ? $0.volumeName : nil }
+            )
+            var removed = 0
+            var reclaimed: UInt64 = 0
+            var failures: [String] = []
+            for volume in volumes where !inUse.contains(volume.name) {
+                do {
+                    let size = try await ClientVolume.volumeDiskUsage(name: volume.name)
+                    try await ClientVolume.delete(name: volume.name)
+                    removed += 1
+                    reclaimed += size
+                } catch {
+                    failures.append("\(volume.name): \(DockyardError(mapping: error).shortReason)")
+                }
+            }
+            return PruneResult(
+                target: .volumes,
+                removedCount: removed,
+                reclaimedBytes: reclaimed,
+                failures: failures
             )
         }
     }
@@ -934,6 +1081,19 @@ extension NetworkItem {
             gateway: resource.status.ipv4Gateway.description,
             isBuiltin: resource.isBuiltin,
             labels: configuration.labels.dictionary
+        )
+    }
+}
+
+extension ResourceUsage {
+    /// Upstream names the last field `reclaimable`; the model spells out that
+    /// it is a byte count, since the two next to it are plain counts.
+    init(_ usage: ContainerAPIClient.ResourceUsage) {
+        self.init(
+            total: usage.total,
+            active: usage.active,
+            sizeInBytes: usage.sizeInBytes,
+            reclaimableBytes: usage.reclaimable
         )
     }
 }

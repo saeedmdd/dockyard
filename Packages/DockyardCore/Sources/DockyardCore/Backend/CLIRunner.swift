@@ -32,6 +32,29 @@ public protocol DaemonController: Sendable {
 
     func systemStart() -> AsyncThrowingStream<CLILine, any Error>
     func systemStop() -> AsyncThrowingStream<CLILine, any Error>
+    func systemLogs(last: SystemLogWindow) -> AsyncThrowingStream<CLILine, any Error>
+}
+
+/// How far back the System panel reads the log.
+///
+/// The runtime writes to the unified log rather than to files, and `log show`
+/// scans the whole store for the window asked for, so a day costs noticeably
+/// more than five minutes. The choice is the user's, and the default is the
+/// CLI's own.
+public enum SystemLogWindow: String, Sendable, Hashable, CaseIterable, Identifiable, Codable {
+    case fiveMinutes = "5m"
+    case oneHour = "1h"
+    case oneDay = "1d"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .fiveMinutes: "Last 5 minutes"
+        case .oneHour: "Last hour"
+        case .oneDay: "Last day"
+        }
+    }
 }
 
 /// Runs the `container` CLI.
@@ -191,6 +214,17 @@ public struct CLIRunner: DaemonController {
     /// the user before invoking it.
     public func systemStop() -> AsyncThrowingStream<CLILine, any Error> {
         run(["system", "stop"])
+    }
+
+    /// `container system logs`.
+    ///
+    /// Despite the name there is no log file to open: upstream shells out to
+    /// `log show --predicate "subsystem = 'com.apple.container'"`, so the
+    /// runtime's output lives in the unified log and `SystemHealth.logRoot` is
+    /// empty on a normal install. Going through the CLI keeps the app reading
+    /// exactly what `container system logs` prints.
+    public func systemLogs(last: SystemLogWindow) -> AsyncThrowingStream<CLILine, any Error> {
+        run(["system", "logs", "--last", last.rawValue])
     }
 }
 

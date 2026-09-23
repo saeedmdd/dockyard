@@ -37,15 +37,6 @@ enum SidebarSection: String, Hashable, CaseIterable, Identifiable {
         case .system: "gearshape"
         }
     }
-
-    /// Sections whose screens arrive in later tasks.
-    var isImplemented: Bool {
-        switch self {
-        case .containers, .images: true
-        case .volumes, .networks: true
-        case .system: false
-        }
-    }
 }
 
 /// Root object for the app: owns the stores, the backend and the poll loop.
@@ -146,6 +137,9 @@ final class AppModel {
         await containerDetail.refresh()
         if selectedSection == .volumes { await volumes.refresh() }
         if selectedSection == .networks { await networks.refresh() }
+        // Disk usage walks the image store, so it is only worth paying for
+        // while the panel that shows it is on screen.
+        if selectedSection == .system { await system.refreshUsage() }
     }
 
     /// Names of containers mounting a volume.

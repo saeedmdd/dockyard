@@ -15,6 +15,19 @@ public final class SystemStore {
     /// Set when a start or stop fails, cleared when the next one begins.
     public private(set) var lastError: DockyardError?
 
+    /// What the runtime is using on disk. Nil until first asked for: it is only
+    /// wanted on the System panel, and the query walks the image store.
+    public private(set) var diskUsage: DiskUsage?
+    /// The kernel containers boot with. Asked for once — it does not change.
+    public private(set) var kernel: KernelInfo?
+    /// Which prune is running, so only its own button shows a spinner.
+    public private(set) var pruning: PruneTarget?
+    /// The outcome of the last prune, shown until the next one starts.
+    public private(set) var lastPrune: PruneResult?
+    /// Set when reading disk usage or pruning fails; separate from `lastError`
+    /// so a failed prune is not wiped by the next status poll.
+    public private(set) var panelError: DockyardError?
+
     private let backend: any ContainerBackend
     private let cli: any DaemonController
     private var operation: Task<Void, Never>?
@@ -56,6 +69,104 @@ public final class SystemStore {
             lastError = DockyardError(mapping: error)
             return .stopped
         }
+    }
+
+    // MARK: - Disk usage
+
+    /// Re-reads disk usage, and the kernel if it has not been read yet.
+    ///
+    /// Silent while the daemon is down or changing state: the panel keeps the
+    /// last numbers instead of blanking, and the status section already says
+    /// why they are not moving.
+    public func refreshUsage() async {
+        guard status.isOperational else { return }
+        do {
+            diskUsage = try await backend.diskUsage()
+            panelError = nil
+        } catch let error as DockyardError where error.isDaemonDown {
+            return
+        } catch {
+            panelError = DockyardError(mapping: error)
+        }
+        if kernel == nil {
+            // A missing kernel is not worth an error banner — the section just
+            // does not appear.
+            kernel = try? await backend.kernelInfo()
+        }
+    }
+
+    /// Removes everything of one kind that nothing is using, then re-reads the
+    /// numbers so the panel shows the result rather than what it swept.
+    @discardableResult
+    public func prune(_ target: PruneTarget) async -> PruneResult? {
+        guard pruning == nil else { return nil }
+        pruning = target
+        lastPrune = nil
+        panelError = nil
+        defer { pruning = nil }
+        do {
+            let result = try await backend.prune(target)
+            lastPrune = result
+            await refreshUsage()
+            return result
+        } catch {
+            panelError = DockyardError(mapping: error)
+            return nil
+        }
+    }
+
+    public func clearPanelError() {
+        panelError = nil
+    }
+
+    public func clearLastPrune() {
+        lastPrune = nil
+    }
+
+    // MARK: - System logs
+
+    /// The most recent read of the runtime's own log, newest last.
+    public private(set) var logLines: [CLILine] = []
+    public private(set) var isLoadingLogs = false
+    /// How many lines were dropped to keep the panel responsive.
+    public private(set) var droppedLogLines = 0
+    /// Bumped per read, so the view that renders the lines can compare one
+    /// integer rather than the array.
+    public private(set) var logVersion = 0
+    public var logWindow: SystemLogWindow = .fiveMinutes
+
+    /// A day of `log show` can run to six figures of lines, which a plain
+    /// SwiftUI list cannot render. The tail is what anyone diagnosing a problem
+    /// reads, so the head is dropped and the count is reported rather than
+    /// silently truncating.
+    public static let maximumLogLines = 2_000
+
+    public func loadLogs() async {
+        guard !isLoadingLogs else { return }
+        isLoadingLogs = true
+        logLines = []
+        droppedLogLines = 0
+        panelError = nil
+        defer { isLoadingLogs = false }
+
+        var collected: [CLILine] = []
+        var dropped = 0
+        do {
+            for try await line in cli.systemLogs(last: logWindow) {
+                collected.append(line)
+                if collected.count > Self.maximumLogLines {
+                    collected.removeFirst(collected.count - Self.maximumLogLines)
+                    dropped += 1
+                }
+            }
+        } catch is CancellationError {
+            // Whatever arrived before the cancel is still worth showing.
+        } catch {
+            panelError = DockyardError(mapping: error)
+        }
+        logLines = collected
+        droppedLogLines = dropped
+        logVersion += 1
     }
 
     // MARK: - Lifecycle

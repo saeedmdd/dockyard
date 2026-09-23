@@ -77,6 +77,15 @@ public protocol ContainerBackend: Sendable {
     @discardableResult
     func loadImages(from source: URL) async throws -> [String]
 
+    /// What the runtime is using on disk.
+    func diskUsage() async throws -> DiskUsage
+
+    /// Removes everything of one kind that nothing is using.
+    func prune(_ target: PruneTarget) async throws -> PruneResult
+
+    /// The default kernel the runtime boots containers with.
+    func kernelInfo() async throws -> KernelInfo
+
     /// Open file handles for a container's logs.
     ///
     /// These are ordinary files the runtime appends to, so following one means

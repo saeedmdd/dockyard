@@ -48,21 +48,7 @@ struct ContentView: View {
         case .networks:
             NetworksListView()
         case .system:
-            ComingSoonView(section: model.selectedSection)
+            SystemView()
         }
-    }
-}
-
-/// Placeholder for sections whose screens arrive in M4.
-struct ComingSoonView: View {
-    let section: SidebarSection
-
-    var body: some View {
-        EmptyListView(
-            symbol: section.symbol,
-            title: section.title,
-            message: "This screen arrives in a later milestone."
-        )
-        .navigationTitle(section.title)
     }
 }
