@@ -18,9 +18,9 @@ Status: `todo` | `in-progress` | `done` | `done*` (done, one check blocked by th
 | [T12](T12-integration-tests.md) | Integration test suite against real daemon | M2 | T11 | done |
 | [T13](T13-build-sheet.md) | Build sheet via `container build` | M3 | T10 | done* |
 | [T14](T14-exec-terminal.md) | Exec terminal (SwiftTerm) | M3 | T07 | done |
-| [T15](T15-volumes.md) | Volumes tab | M4 | T04 | done* |
-| [T16](T16-networks.md) | Networks tab | M4 | T04 | done* |
-| [T17](T17-registry-push-save.md) | Registry login, push, save | M4 | T10 | todo |
+| [T15](T15-volumes.md) | Volumes tab | M4 | T04 | done |
+| [T16](T16-networks.md) | Networks tab | M4 | T04 | done |
+| [T17](T17-registry-push-save.md) | Registry login, push, save | M4 | T10 | in-progress |
 | [T18](T18-system-panel.md) | System panel: df, prune, versions, logs | M4 | T03 | todo |
 | [T19](T19-polish-and-settings.md) | Search, shortcuts, settings, launch at login | M5 | T05–T18 | todo |
 | [T20](T20-release-pipeline.md) | Build/sign/notarize scripts, README | M5 | T19 | todo |

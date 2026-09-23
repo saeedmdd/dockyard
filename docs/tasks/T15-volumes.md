@@ -25,9 +25,10 @@
       the volume in its mounts, which is exactly what the delete guard reads.
 - [x] Deleting a volume that does not exist fails.
 - [x] 227 unit tests in 35 suites, 40 integration tests; `xcodebuild` clean.
-- [ ] **UI not verified on screen** — the Mac's screen was locked for this task
-      (`CGSSessionScreenIsLocked = Yes`), and a locked session will not let an app activate or create
-      windows. The view compiles and is wired in; it has not been looked at.
+- [x] **UI verified once the screen was unlocked.** The Volumes tab listed the volume and its detail
+      pane matched `container volume inspect` exactly: format `ext4`, size `549.76 GB`
+      (549755813888 bytes), and the same `volume.img` source path. Disk usage showed 69.4 MB, fetched
+      lazily as designed.
 
 ## Findings
 - **Fixed a real gap in the T12 fixture, found by this task.** `cleanUp()` removed containers and

@@ -25,8 +25,10 @@
 - [x] Deleting a network that does not exist fails.
 - [x] 241 unit tests in 37 suites, 44 integration tests; `xcodebuild` clean.
 - [x] No leftovers: only `default` and the user's own `esnet` remain.
-- [ ] **UI not verified on screen** — the Mac's screen stayed locked for this task, so the view
-      compiles and is wired in but has not been looked at (see T15's diagnostic note).
+- [x] **UI verified once the screen was unlocked.** The Networks tab listed both networks; the
+      `default` detail pane showed Mode `NAT`, Subnet `192.168.64.0/24` and Gateway `192.168.64.1`,
+      matching `container network list`. With it selected the toolbar reported `Delete=false`, so the
+      built-in network genuinely cannot be deleted from the UI.
 
 ## Findings
 - `NetworkConfiguration` requires a `plugin`, which has no default on the type. The CLI's own default
