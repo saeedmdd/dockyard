@@ -1,0 +1,160 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+
+    # `secrets` cannot be read from a step's `if:` — it is not one of the
+    # contexts allowed there — so the question "is a certificate configured?"
+    # is answered once here, where it can be.
+    env:
+      HAS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
+      HAS_NOTARY: ${{ secrets.NOTARY_PASSWORD != '' }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Report the toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      - name: Install the Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
+      - name: Check the tag matches the version in the project
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          project_version="$(bash -c 'source scripts/common.sh && dockyard_version')"
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [[ "$project_version" != "$tag_version" ]]; then
+            # Shipping a DMG whose name disagrees with the app inside it is
+            # the kind of thing nobody notices until a bug report is filed
+            # against the wrong version.
+            echo "::error::tag $GITHUB_REF_NAME does not match MARKETING_VERSION $project_version"
+            exit 1
+          fi
+
+      - name: Unit tests
+        working-directory: Packages/DockyardCore
+        run: swift test
+
+      # Signing is optional. With no certificate in the repository's secrets
+      # the build is ad-hoc signed, which is usable but Gatekeeper will refuse
+      # it on any Mac other than the one that built it — and a runner is not a
+      # Mac anyone keeps. Adding the secrets later turns this on with no edit.
+      - name: Import the Developer ID certificate
+        id: signing
+        if: env.HAS_CERTIFICATE == 'true'
+        env:
+          CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/build.keychain-db"
+          # A random password for a keychain that exists for one job and is
+          # thrown away with the runner.
+          password="$(uuidgen)"
+
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 900 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+
+          printf '%s' "$CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" \
+            -k "$keychain" -P "$CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/certificate.p12"
+
+          # Without this codesign stops to ask for permission, which on a
+          # runner means hanging until the job times out.
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychain -d user -s "$keychain" login.keychain-db
+
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Store the notary credentials
+        if: steps.signing.outputs.signed == 'true' && env.HAS_NOTARY == 'true'
+        run: |
+          xcrun notarytool store-credentials DOCKYARD_NOTARY \
+            --apple-id "${{ secrets.NOTARY_APPLE_ID }}" \
+            --team-id "${{ secrets.TEAM_ID }}" \
+            --password "${{ secrets.NOTARY_PASSWORD }}"
+
+      - name: Build the release
+        env:
+          DEVELOPER_ID_APPLICATION: ${{ steps.signing.outputs.signed == 'true' && secrets.DEVELOPER_ID_APPLICATION || '' }}
+          TEAM_ID: ${{ steps.signing.outputs.signed == 'true' && secrets.TEAM_ID || '' }}
+        run: scripts/release.sh
+
+      - name: Describe what was built
+        id: artifact
+        run: |
+          set -euo pipefail
+          dmg="$(ls build/*.dmg)"
+          echo "path=$dmg" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$dmg")" >> "$GITHUB_OUTPUT"
+          shasum -a 256 "$dmg" | tee build/checksums.txt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Dockyard-dmg
+          path: |
+            build/*.dmg
+            build/checksums.txt
+
+      - name: Write the release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          SIGNED: ${{ steps.signing.outputs.signed }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Dockyard ${GITHUB_REF_NAME}"
+            echo
+            echo "A native macOS front end for [\`apple/container\`](https://github.com/apple/container)."
+            echo
+            echo "**Requires** macOS 26 or later on Apple Silicon, with \`apple/container\` 1.0.0"
+            echo "installed first — Dockyard does not bundle the runtime."
+            echo
+            if [[ "${SIGNED:-}" != "true" ]]; then
+              echo "> [!WARNING]"
+              echo "> This build is **ad-hoc signed and not notarized**, because the project has no"
+              echo "> Apple Developer ID yet. macOS will refuse to open it normally. To run it"
+              echo "> anyway, after dragging it to Applications:"
+              echo "> \`\`\`sh"
+              echo "> xattr -dr com.apple.quarantine /Applications/Dockyard.app"
+              echo "> \`\`\`"
+              echo "> Only do that for a build you trust. A signed, notarized release will not"
+              echo "> need it."
+              echo
+            fi
+            echo "### Checksum"
+            echo '```'
+            cat build/checksums.txt
+            echo '```'
+            echo
+            echo "See [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md) for what is in it."
+          } > build/release-notes.md
+          cat build/release-notes.md
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Dockyard $GITHUB_REF_NAME" \
+            --notes-file build/release-notes.md \
+            --prerelease \
+            "${{ steps.artifact.outputs.path }}" \
+            build/checksums.txt

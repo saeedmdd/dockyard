@@ -108,6 +108,11 @@ Without `DEVELOPER_ID_APPLICATION` the same command still produces a DMG, signed
 notarized. That is fine for testing on the machine that built it and will be refused by Gatekeeper
 anywhere else — the script says so as it goes.
 
+Pushing a `v*` tag runs the same scripts on a `macos-26` runner and publishes the DMG as a GitHub
+release. It signs and notarizes only if the repository has `MACOS_CERTIFICATE_P12`,
+`MACOS_CERTIFICATE_PASSWORD`, `DEVELOPER_ID_APPLICATION`, `TEAM_ID`, `NOTARY_APPLE_ID` and
+`NOTARY_PASSWORD` set; without them it builds ad-hoc and says so in the release notes.
+
 ## How it is put together
 
 `Packages/DockyardCore` holds the models, the stores and the one type that knows Apple's API shapes

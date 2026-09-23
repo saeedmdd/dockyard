@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Apple Silicon, macOS 26, Xcode 26.6. Dockyard needs all three: the
+    # package is swift-tools 6.2, the deployment target is macOS 26, and
+    # `apple/container` only exists on ARM.
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Report the toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Install the Metal Toolchain
+        # SwiftTerm ships a build plugin that needs it. Not preinstalled.
+        run: xcodebuild -downloadComponent MetalToolchain
+
+      # The first resolve pulls ~200 MB across 16 repositories, which is most
+      # of a cold run. Keyed on the resolved versions, so it only re-fetches
+      # when a dependency actually moves.
+      - name: Cache resolved packages
+        uses: actions/cache@v6
+        with:
+          path: |
+            .spm-cache
+            Packages/DockyardCore/.build
+          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Unit tests
+        working-directory: Packages/DockyardCore
+        run: swift test
+
+      - name: Build the app
+        run: |
+          xcodebuild build \
+            -project Dockyard.xcodeproj \
+            -scheme Dockyard \
+            -configuration Debug \
+            -destination 'generic/platform=macOS' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            -skipPackagePluginValidation \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
+
+      # The integration tests are deliberately not run here. They need a live
+      # `container-apiserver`, which needs Virtualization.framework, which a
+      # GitHub runner — itself a VM — cannot nest. They run on a developer's
+      # machine with DOCKYARD_INTEGRATION=1; see README.md.
