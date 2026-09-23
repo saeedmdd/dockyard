@@ -102,16 +102,25 @@ import Testing
     }
 
     /// A double-click must not send the command twice.
+    ///
+    /// The first start is held open rather than raced against with two
+    /// `async let`s: nothing guarantees the second task begins before the
+    /// first finishes, so against an instant mock the outcome depended on
+    /// scheduling — it passed here and failed on a slower CI runner.
     @Test func secondActionOnTheSameContainerIsIgnoredWhileOneIsInFlight() async {
         let (store, backend) = await loadedStore([.stub(id: "web", status: .stopped)])
+        backend.gateLifecycleCalls()
 
-        async let first = store.start("web")
-        async let second = store.start("web")
-        let results = await [first, second]
+        let first = Task { await store.start("web") }
+        await backend.waitForGatedCall()
 
+        // The first start is now provably still in flight.
+        let second = await store.start("web")
+        #expect(!second, "the second click must be refused")
+
+        backend.releaseGate()
+        #expect(await first.value)
         #expect(backend.calls.start == 1, "the second click must not reach the daemon")
-        #expect(results.contains(true))
-        #expect(results.contains(false))
     }
 
     @Test func actionsOnDifferentContainersRunIndependently() async {

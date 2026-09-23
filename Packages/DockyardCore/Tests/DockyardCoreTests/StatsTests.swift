@@ -188,10 +188,18 @@ import Testing
         try? await Task.sleep(for: .milliseconds(120))
         store.stop()
         let afterStop = backend.calls.stats
+        let samplesAfterStop = store.samples.count
         try? await Task.sleep(for: .milliseconds(150))
 
         #expect(!store.isRunning)
-        #expect(backend.calls.stats == afterStop, "no readings after stop")
+        // What the store can promise is that it starts no new readings. One
+        // already in flight when `stop()` lands still reaches the backend —
+        // the call runs off the main actor — and asserting it could not was a
+        // flake that failed roughly one run in ten.
+        #expect(backend.calls.stats <= afterStop + 1, "no new readings started after stop")
+        // What it must promise, and now does, is that such a reading is
+        // discarded rather than charted.
+        #expect(store.samples.count == samplesAfterStop, "nothing charted after stop")
     }
 
     /// Switching containers must not chart one container's history under

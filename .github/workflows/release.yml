@@ -94,7 +94,9 @@ jobs:
         env:
           DEVELOPER_ID_APPLICATION: ${{ steps.signing.outputs.signed == 'true' && secrets.DEVELOPER_ID_APPLICATION || '' }}
           TEAM_ID: ${{ steps.signing.outputs.signed == 'true' && secrets.TEAM_ID || '' }}
-        run: scripts/release.sh
+        run: |
+          set -o pipefail
+          scripts/release.sh 2>&1 | tee release.log
 
       - name: Describe what was built
         id: artifact
@@ -146,6 +148,25 @@ jobs:
             echo "See [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md) for what is in it."
           } > build/release-notes.md
           cat build/release-notes.md
+
+      # Same lesson CI learned the hard way: a red release that only says
+      # "exit 65" costs a round trip per guess. Last, so it covers every step.
+      - name: Report what failed
+        if: failure()
+        run: |
+          if [[ -f release.log ]]; then
+            {
+              echo "## Release failed"
+              echo '```'
+              grep -E "error:" release.log | sort -u | head -40 || tail -40 release.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            grep -E "error:" release.log | sort -u | head -20 | while IFS= read -r line; do
+              echo "::error title=release::${line}"
+            done
+            tail -30 release.log
+          fi
+          df -h / | tail -1
 
       - name: Publish the release
         if: startsWith(github.ref, 'refs/tags/v')

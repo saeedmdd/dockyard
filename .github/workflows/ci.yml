@@ -54,7 +54,9 @@ jobs:
 
       - name: Run the unit tests
         working-directory: Packages/DockyardCore
-        run: swift test --skip-build --xunit-output ../../test-results.xml
+        run: |
+          set -o pipefail
+          swift test --skip-build 2>&1 | tee ../../test-run.log
 
       - name: Report free space
         run: df -h / | tail -1
@@ -93,7 +95,7 @@ jobs:
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           }
 
-          for log in test-build.log app-build.log; do
+          for log in test-build.log test-run.log app-build.log; do
             [[ -f "$log" ]] || continue
             if grep -qE "error:" "$log"; then
               grep -E "error:" "$log" | sort -u | head -40 | emit "$log"
@@ -103,19 +105,16 @@ jobs:
             fi
           done
 
-          if [[ -f test-results.xml ]]; then
-            python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
-          import xml.etree.ElementTree as ET
-          for case in ET.parse("test-results.xml").getroot().iter("testcase"):
-              for failure in case.iter("failure"):
-                  message = (failure.get("message") or "").replace("\n", " ")[:400]
-                  print(f'::error title={case.get("name")}::{message}')
-          PY
+          if [[ -f test-run.log ]] && grep -q "recorded an issue" test-run.log; then
+            grep "recorded an issue" test-run.log | head -20 | emit "failing tests"
+            grep "recorded an issue" test-run.log | head -20 | while IFS= read -r line; do
+              echo "::error title=test::${line}"
+            done
           fi
 
           # Tail of whichever log exists, in case nothing matched "error:" —
           # silence here would otherwise look like there was nothing to report.
-          for log in app-build.log test-build.log; do
+          for log in app-build.log test-run.log test-build.log; do
             [[ -f "$log" ]] && tail -30 "$log" | emit "tail of $log"
           done
           cat "$GITHUB_STEP_SUMMARY"

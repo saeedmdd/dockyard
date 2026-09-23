@@ -224,15 +224,26 @@ import Testing
 
     /// Two prunes at once would delete the same things twice and report the
     /// second sweep as having found nothing.
+    ///
+    /// The first prune is held open rather than raced against: `async let`
+    /// gives no guarantee the second task starts before the first finishes, so
+    /// against an instant mock this passed locally and failed on a slower CI
+    /// runner depending on which way the interleaving fell.
     @Test func asecondPruneIsRefusedWhileOneIsRunning() async {
         let backend = MockBackend(containers: [.stub(id: "old", status: .stopped)])
         let store = await runningStore(backend)
+        backend.gateLifecycleCalls()
 
-        async let first = store.prune(.containers)
-        async let second = store.prune(.images)
-        let results = await [first, second]
+        let first = Task { await store.prune(.containers) }
+        await backend.waitForGatedCall()
 
-        #expect(results.compactMap { $0 }.count == 1)
+        // The first prune is now provably in flight.
+        #expect(store.pruning == .containers)
+        let second = await store.prune(.images)
+        #expect(second == nil)
+
+        backend.releaseGate()
+        #expect(await first.value != nil)
         #expect(backend.calls.prune == 1)
     }
 
@@ -335,13 +346,19 @@ import Testing
 
     /// A second Show while the first is still reading would interleave two
     /// `log show` runs into one list.
+    ///
+    /// `isLoadingLogs` is set before the first suspension, so waiting for it
+    /// is enough to know the first read is under way — no sleep, and no
+    /// dependence on which task the scheduler starts first.
     @Test func asecondReadIsRefusedWhileOneIsRunning() async {
         let cli = ScriptedDaemonController(lines: ["a", "b"], delayPerLine: .milliseconds(30))
         let store = await runningStore(cli)
 
-        async let first: Void = store.loadLogs()
-        async let second: Void = store.loadLogs()
-        _ = await [first, second]
+        let first = Task { await store.loadLogs() }
+        while !store.isLoadingLogs { await Task.yield() }
+
+        await store.loadLogs()
+        await first.value
 
         #expect(cli.logWindows.count == 1)
         #expect(store.logLines.map(\.text) == ["a", "b"])

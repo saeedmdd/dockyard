@@ -75,6 +75,11 @@ public final class StatsStore {
     private func sampleOnce(id: String) async {
         do {
             let reading = try await backend.containerStats(id: id)
+            // The backend call runs off the main actor, so `stop()` can land
+            // while it is in flight. Without this the reading is charted after
+            // the user has closed the tab, and the next `start` would compare
+            // against a `previous` from a session that is over.
+            guard !Task.isCancelled else { return }
             defer { previous = reading }
             lastError = nil
             guard let previous else { return }

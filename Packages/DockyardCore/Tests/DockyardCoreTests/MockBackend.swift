@@ -198,7 +198,10 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
     /// Prunes its own state the way the live backend prunes the runtime's, so
     /// store tests see real before/after counts rather than a canned result.
     func prune(_ target: PruneTarget) async throws -> PruneResult {
-        try lock.withLock {
+        // Gated like the lifecycle calls so a test can hold a prune open and
+        // observe the in-flight state instead of racing it.
+        await waitIfGated()
+        return try lock.withLock {
             _calls.prune += 1
             if let _failure { throw _failure }
             let failures = _prunePartialFailures
