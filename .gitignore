@@ -15,6 +15,7 @@ xcuserdata/
 .build/
 .swiftpm/
 Packages/*/.build/
+.spm-cache/
 Packages/*/.swiftpm/
 
 # macOS
