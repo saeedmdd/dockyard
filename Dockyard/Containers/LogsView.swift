@@ -108,6 +108,9 @@ struct LogsView: View {
                 .textFieldStyle(.plain)
                 .frame(width: 140)
                 .focused($isSearchFocused)
+                // ⌘F belongs on a menu command, not on this field: a shortcut
+                // attached here only works once the field already has focus.
+                .onChange(of: model.logSearchFocusRequest) { isSearchFocused = true }
                 .onSubmit { advanceMatch(by: 1) }
                 .onChange(of: store.searchQuery) { matchIndex = 0 }
 

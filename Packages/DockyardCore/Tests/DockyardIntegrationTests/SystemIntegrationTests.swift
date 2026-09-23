@@ -7,50 +7,52 @@ import Testing
 @Suite(.enabled(if: IntegrationGate.isEnabled), .serialized)
 struct SystemIntegrationTests {
 
-    /// The same query `container system df` renders, compared against the CLI's
-    /// own output so the panel can never quietly drift from it.
+    /// The app's numbers have to be the ones `container system df` reports, so
+    /// the panel can never quietly drift from the CLI.
     ///
-    /// The CLI is read on both sides of the app's own call, and the app's answer
-    /// has to equal one of those two readings.
+    /// The app is read on both sides of the CLI, and the CLI's numbers have to
+    /// match one of those two readings. Comparing single readings does not
+    /// work: the other suites run in parallel and create and delete containers
+    /// throughout, so something usually moves in between. Bracketing keeps the
+    /// check meaningful — a genuinely wrong number matches neither end.
     ///
-    /// Demanding it equal a single reading does not work here: the other suites
-    /// run in parallel and create and delete containers throughout, and each
-    /// `container system df` is a process launch, so the window is wide enough
-    /// that something usually moves inside it. Bracketing keeps the check
-    /// meaningful — a genuinely wrong number matches neither end — without
-    /// failing over a container someone else's test made.
+    /// The app is on the outside rather than the CLI because an XPC call costs
+    /// a round trip and `container system df` costs a process launch; putting
+    /// the cheap side outside makes the window something changes in about half
+    /// as wide. With the CLI outside this failed most runs.
     @Test func diskUsageMatchesTheCLI() async throws {
         try await ensureDaemonRunning()
         let backend = LiveBackend()
 
-        for attempt in 1...5 {
-            let before = Self.parseCounts(try runCLI(["system", "df"]))
-            let usage = try await backend.diskUsage()
-            let after = Self.parseCounts(try runCLI(["system", "df"]))
+        for attempt in 1...8 {
+            let before = try await backend.diskUsage()
+            let cli = Self.parseCounts(try runCLI(["system", "df"]))
+            let after = try await backend.diskUsage()
 
             // `TYPE TOTAL ACTIVE SIZE RECLAIMABLE`, one row per kind. Only the
             // counts are compared: the sizes are recomputed per call and differ
             // between two readings of an otherwise idle machine.
-            let rows: [(String, ResourceUsage)] = [
-                ("Images", usage.images),
-                ("Containers", usage.containers),
-                ("Local Volumes", usage.volumes),
+            let rows: [(String, ResourceUsage, ResourceUsage)] = [
+                ("Images", before.images, after.images),
+                ("Containers", before.containers, after.containers),
+                ("Local Volumes", before.volumes, after.volumes),
             ]
-            let mismatched = rows.filter { label, resource in
-                let mine = Counts(total: resource.total, active: resource.active)
-                return mine != before[label] && mine != after[label]
+            let mismatched = rows.filter { label, first, second in
+                guard let reported = cli[label] else { return true }
+                return reported != Counts(total: first.total, active: first.active)
+                    && reported != Counts(total: second.total, active: second.active)
             }
             guard mismatched.isEmpty else {
                 #expect(
-                    attempt < 5,
+                    attempt < 8,
                     """
                     \(mismatched.map(\.0).joined(separator: ", ")) never matched \
-                    `container system df` across five readings
+                    `container system df` across eight readings
                     """
                 )
                 continue
             }
-            #expect(before.keys.sorted() == ["Containers", "Images", "Local Volumes"])
+            #expect(cli.keys.sorted() == ["Containers", "Images", "Local Volumes"])
             return
         }
     }

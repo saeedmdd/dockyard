@@ -3,6 +3,7 @@ import SwiftUI
 
 struct NetworksListView: View {
     @Environment(AppModel.self) private var model
+    @State private var isSearchPresented = false
     @State private var sortOrder = [KeyPathComparator(\NetworkItem.name)]
     @State private var isShowingCreateSheet = false
     @State private var deletionTarget: NetworkItem?
@@ -21,8 +22,15 @@ struct NetworksListView: View {
                     title: model.networks.isLoadingInitially ? "Loading…" : "No networks",
                     message: model.networks.isLoadingInitially
                         ? nil
-                        : "Containers share a network to reach each other by name."
+                        : "Containers share a network to reach each other by name.",
+                    actionTitle: model.networks.isLoadingInitially ? nil : "New Network…",
+                    action: model.networks.isLoadingInitially ? nil : { isShowingCreateSheet = true }
                 )
+                .frame(maxHeight: .infinity)
+            } else if visibleNetworks.isEmpty {
+                NoSearchResultsView(query: model.searchQuery, noun: "networks") {
+                    model.searchQuery = ""
+                }
                 .frame(maxHeight: .infinity)
             } else {
                 HSplitView {
@@ -36,12 +44,31 @@ struct NetworksListView: View {
             }
         }
         .navigationTitle("Networks")
-        .navigationSubtitle(model.networks.items.isEmpty ? "" : "\(model.networks.items.count) networks")
+        .navigationSubtitle(networksSubtitle)
+        .searchable(
+            text: $model.searchQuery,
+            isPresented: $isSearchPresented,
+            placement: .toolbar,
+            prompt: "Name, subnet, gateway"
+        )
+        // `isPresented` is the only way to put the cursor in the field from a
+        // menu command; there is no focus binding for a search field.
+        .onChange(of: model.findRequest) { isSearchPresented = true }
+        .persistentSort(
+            $sortOrder,
+            table: .networks,
+            columns: [
+                "name": KeyPathComparator(\NetworkItem.name),
+                "mode": KeyPathComparator(\NetworkItem.mode.rawValue),
+            ]
+        )
         .toolbar {
             Button("New Network", systemImage: "plus") { isShowingCreateSheet = true }
                 .help("Create a network")
+                .accessibilityLabel("Create a network")
 
             Button("Delete", systemImage: "trash") { deletionTarget = selectedNetwork }
+                .accessibilityLabel("Delete the selected network")
                 .disabled(selectedNetwork == nil || selectedNetwork?.isBuiltin == true)
                 .help(
                     selectedNetwork?.isBuiltin == true
@@ -51,6 +78,20 @@ struct NetworksListView: View {
         }
         .sheet(isPresented: $isShowingCreateSheet) { CreateNetworkSheet() }
         .deleteNetworkConfirmation(target: $deletionTarget)
+        .onChange(of: model.deleteSelectionRequest) {
+            if let selected = selectedNetwork, !selected.isBuiltin { deletionTarget = selected }
+        }
+    }
+
+    private var visibleNetworks: [NetworkItem] {
+        model.networks.items.matching(model.searchQuery)
+    }
+
+    private var networksSubtitle: String {
+        let total = model.networks.items.count
+        guard total > 0 else { return "" }
+        let shown = visibleNetworks.count
+        return shown == total ? "\(total) networks" : "\(shown) of \(total) shown"
     }
 
     private var selectedNetwork: NetworkItem? {
@@ -63,7 +104,7 @@ struct NetworksListView: View {
         @Bindable var model = model
 
         return Table(
-            model.networks.items.sorted(using: sortOrder),
+            visibleNetworks.sorted(using: sortOrder),
             selection: $model.selectedNetworkName,
             sortOrder: $sortOrder
         ) {
@@ -81,7 +122,7 @@ struct NetworksListView: View {
             }
             .width(min: 140, ideal: 200)
 
-            TableColumn("Mode") { network in
+            TableColumn("Mode", value: \.mode.rawValue) { network in
                 Text(network.mode.title).foregroundStyle(.secondary)
             }
             .width(90)

@@ -17,26 +17,66 @@ struct MenuBarView: View {
             if model.system.status.isOperational {
                 runningContainers
                 Divider().padding(.vertical, 8)
+                quickActions
+                Divider().padding(.vertical, 8)
             } else {
                 daemonActions
                 Divider().padding(.vertical, 8)
             }
 
             Button("Open Dockyard") {
-                openWindow(id: DockyardApp.mainWindowID)
-                NSApp.activate(ignoringOtherApps: true)
+                open(.containers)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Open Dockyard")
             Button("Quit Dockyard") {
                 NSApplication.shared.terminate(nil)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Quit Dockyard")
             .keyboardShortcut("q")
         }
         .padding(12)
         .frame(width: 280, alignment: .leading)
         .onAppear { model.menuOpened() }
         .onDisappear { model.menuClosed() }
+    }
+
+    /// The two things worth starting from the menu bar with the window closed,
+    /// plus a way into the panel that manages the runtime itself.
+    private var quickActions: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button("Run Container…") {
+                model.runSheetRequest = RunSheetRequest(image: nil)
+                open(.containers)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Run Container")
+
+            Button("Pull Image…") {
+                model.pullSheetRequest += 1
+                open(.images)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Pull Image")
+
+            Button("System…") {
+                open(.system)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open the System panel")
+        }
+    }
+
+    /// Opens the window on a section and brings the app forward.
+    ///
+    /// Both halves are needed: `openWindow` alone leaves the window behind
+    /// whatever the user was doing, since a menu bar click does not activate
+    /// the app.
+    private func open(_ section: SidebarSection) {
+        model.selectedSection = section
+        openWindow(id: DockyardApp.mainWindowID)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private var header: some View {
@@ -61,6 +101,7 @@ struct MenuBarView: View {
         case .stopped:
             Button("Start container system") { model.system.start() }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Start the container system")
         case .cliMissing:
             Link("Install container…", destination: URL(string: "https://github.com/apple/container/releases")!)
         case .starting, .stopping:
@@ -101,7 +142,16 @@ struct MenuBarView: View {
                         .help("Open http://localhost:\(port.hostPort)")
                     }
                     Button {
-                        Task { await model.containers.stop(container.id) }
+                        // With the window closed the list's error banner has
+                        // nowhere to appear, so a failure here has to say so
+                        // itself.
+                        Task {
+                            if await !model.containers.stop(container.id),
+                                let error = model.containers.actionError
+                            {
+                                model.show(error)
+                            }
+                        }
                     } label: {
                         Image(systemName: "stop.fill")
                     }
