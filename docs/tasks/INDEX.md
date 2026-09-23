@@ -24,3 +24,4 @@ Status: `todo` | `in-progress` | `done` | `done*` (done, one check blocked by th
 | [T18](T18-system-panel.md) | System panel: df, prune, versions, logs | M4 | T03 | done |
 | [T19](T19-polish-and-settings.md) | Search, shortcuts, settings, launch at login | M5 | T05–T18 | done |
 | [T20](T20-release-pipeline.md) | Build/sign/notarize scripts, README | M5 | T19 | done* |
+| [T21](T21-compose-plumbing.md) | Compose plumbing: Yams, label listing, DNS reads | M6 | T20 | done |

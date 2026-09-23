@@ -194,6 +194,33 @@ public struct LiveBackend: ContainerBackend {
         }
     }
 
+    public func listContainers(matchingLabels labels: [String: String]) async throws -> [ContainerItem] {
+        try await mapErrors {
+            // `.withoutMachines()` merges in the runtime's own exclusion rather
+            // than replacing our labels, so the two compose.
+            let filters = ContainerListFilters(labels: labels).withoutMachines()
+            return try await client.list(filters: filters)
+                .map(ContainerItem.init(snapshot:))
+                .sorted { $0.id < $1.id }
+        }
+    }
+
+    public func dnsDomain() async throws -> String? {
+        try await mapErrors {
+            let domain = try await configLoader.load().dns.domain
+            // The runtime reports an unset domain as an empty string in some
+            // configurations and nil in others; both mean "no name resolution".
+            return (domain?.isEmpty ?? true) ? nil : domain
+        }
+    }
+
+    public func hostResolverDomains() -> [String] {
+        // Reading /etc/resolver needs no privileges — only creating an entry
+        // there does. Upstream owns the layout, so this asks it rather than
+        // restating the prefix convention.
+        HostDNSResolver().listDomains().map(\.description)
+    }
+
     public func containerDetail(id: String) async throws -> ContainerDetail {
         try await mapErrors {
             ContainerDetail(snapshot: try await client.get(id: id))

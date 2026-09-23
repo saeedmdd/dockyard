@@ -20,6 +20,10 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-system.git", from: "1.6.4"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
+        // Compose files. Already in the resolved graph at 6.2.2 by way of
+        // apple/container, which does not re-export it — declaring it here adds
+        // no checkout and cannot introduce a version conflict.
+        .package(url: "https://github.com/jpsim/Yams.git", from: "6.2.1"),
     ],
     targets: [
         .target(
@@ -38,6 +42,7 @@ let package = Package(
                 .product(name: "ContainerizationOS", package: "containerization"),
                 .product(name: "ContainerizationExtras", package: "containerization"),
                 .product(name: "SystemPackage", package: "swift-system"),
+                .product(name: "Yams", package: "Yams"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
