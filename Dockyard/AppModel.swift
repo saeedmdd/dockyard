@@ -42,7 +42,8 @@ enum SidebarSection: String, Hashable, CaseIterable, Identifiable {
     var isImplemented: Bool {
         switch self {
         case .containers, .images: true
-        case .volumes, .networks, .system: false
+        case .volumes: true
+        case .networks, .system: false
         }
     }
 }
@@ -60,6 +61,7 @@ final class AppModel {
     let imageDetail: ImageDetailStore
     let run: RunStore
     let builds: BuildStore
+    let volumes: VolumeStore
 
     var selectedSection: SidebarSection = .containers
     var selectedContainerID: ContainerItem.ID? {
@@ -68,6 +70,7 @@ final class AppModel {
             Task { await containerDetail.select(selectedContainerID) }
         }
     }
+    var selectedVolumeName: String?
     var selectedImageID: ImageItem.ID? {
         didSet {
             guard selectedImageID != oldValue else { return }
@@ -86,6 +89,17 @@ final class AppModel {
     /// Polling runs only while the user can see something. Two independent
     /// surfaces can demand it, so they are tracked separately rather than as
     /// one flag that whichever closes last would clear.
+    /// Volume names mounted by each container, accumulated as details are
+    /// loaded. Listing containers does not include mounts, so this fills in as
+    /// the user browses rather than costing a detail fetch per container on
+    /// every poll.
+    private(set) var mountedVolumesByContainer: [String: Set<String>] = [:]
+
+    func recordMounts(for detail: ContainerDetail) {
+        let volumes = Set(detail.mounts.compactMap(\.volumeName))
+        mountedVolumesByContainer[detail.id] = volumes
+    }
+
     private var isWindowVisible = false { didSet { syncPolling() } }
     private var isMenuOpen = false { didSet { syncPolling() } }
 
@@ -104,10 +118,14 @@ final class AppModel {
         self.images = ImageStore(backend: backend)
         self.imageDetail = ImageDetailStore(backend: backend)
         self.run = RunStore(backend: backend)
+        self.volumes = VolumeStore(backend: backend)
         let images = self.images
         self.builds = BuildStore { await images.refresh() }
         self.poller = Poller(interval: .seconds(2)) { [weak self] in
             await self?.tick()
+        }
+        self.containerDetail.onDetailLoaded = { [weak self] detail in
+            self?.recordMounts(for: detail)
         }
     }
 
@@ -121,6 +139,18 @@ final class AppModel {
         await images.refresh()
         // Keeps uptime and status live while the user reads the detail pane.
         await containerDetail.refresh()
+        if selectedSection == .volumes { await volumes.refresh() }
+    }
+
+    /// Names of containers mounting a volume.
+    ///
+    /// The list only carries a summary per container, so this reads the mount
+    /// details the detail store has already fetched, plus the selected one.
+    func containersMounting(_ volumeName: String) -> [String] {
+        mountedVolumesByContainer
+            .filter { $0.value.contains(volumeName) }
+            .keys
+            .sorted()
     }
 
     /// Refresh now, from ⌘R or straight after an action.

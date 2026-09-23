@@ -27,6 +27,10 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         var tagImage = 0
         var createContainer = 0
         var exec = 0
+        var listVolumes = 0
+        var createVolume = 0
+        var deleteVolume = 0
+        var volumeUsage = 0
     }
 
     /// Records what was asked of each container, in order.
@@ -45,6 +49,8 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
     private var _sizes: [String: Int64]
     private var _invocations: [Invocation] = []
     private var _logFiles: [String: URL] = [:]
+    private var _volumes: [VolumeItem] = []
+    private var _volumeUsage: [String: UInt64] = [:]
     private var _pullProgress: [PullProgress] = []
     private var _pullFailure: DockyardError?
     private var _createProgress: [PullProgress] = []
@@ -389,6 +395,55 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         }
     }
 
+    func setVolumes(_ volumes: [VolumeItem]) {
+        lock.withLock { _volumes = volumes }
+    }
+
+    func setVolumeUsage(_ usage: [String: UInt64]) {
+        lock.withLock { _volumeUsage = usage }
+    }
+
+    func listVolumes() async throws -> [VolumeItem] {
+        try lock.withLock {
+            _calls.listVolumes += 1
+            if let _failure { throw _failure }
+            return _volumes.sorted { $0.name < $1.name }
+        }
+    }
+
+    @discardableResult
+    func createVolume(_ spec: VolumeSpec) async throws -> VolumeItem {
+        try lock.withLock {
+            _calls.createVolume += 1
+            if let _failure { throw _failure }
+            if _volumes.contains(where: { $0.name == spec.trimmedName }) {
+                throw DockyardError.upstream(code: "exists", message: "volume already exists")
+            }
+            let volume = VolumeItem.stub(name: spec.trimmedName)
+            _volumes.append(volume)
+            return volume
+        }
+    }
+
+    func deleteVolume(name: String) async throws {
+        try lock.withLock {
+            _calls.deleteVolume += 1
+            if let _failure { throw _failure }
+            guard _volumes.contains(where: { $0.name == name }) else {
+                throw DockyardError.upstream(code: "notFound", message: "no such volume")
+            }
+            _volumes.removeAll { $0.name == name }
+        }
+    }
+
+    func volumeDiskUsage(name: String) async throws -> UInt64 {
+        try lock.withLock {
+            _calls.volumeUsage += 1
+            if let _failure { throw _failure }
+            return _volumeUsage[name] ?? 0
+        }
+    }
+
     func setLogFile(_ url: URL, for id: String) {
         lock.withLock { _logFiles[id] = url }
     }
@@ -586,5 +641,20 @@ final class MockExecSession: ExecSessionHandle, @unchecked Sendable {
     func close() async {
         lock.withLock { isClosed = true }
         continuation.finish()
+    }
+}
+
+extension VolumeItem {
+    static func stub(name: String = "data") -> VolumeItem {
+        VolumeItem(
+            name: name,
+            driver: "local",
+            format: "ext4",
+            source: "/Users/test/Library/Application Support/com.apple.container/volumes/\(name)",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            labels: [:],
+            options: [:],
+            sizeInBytes: nil
+        )
     }
 }

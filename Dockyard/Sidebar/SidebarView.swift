@@ -13,7 +13,7 @@ struct SidebarView: View {
                 row(.images, badge: model.images.visibleItems.count)
             }
             Section("Infrastructure") {
-                row(.volumes, badge: nil)
+                row(.volumes, badge: model.volumes.items.count)
                 row(.networks, badge: nil)
             }
             Section {

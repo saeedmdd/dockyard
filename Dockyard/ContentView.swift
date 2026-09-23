@@ -43,7 +43,9 @@ struct ContentView: View {
             ContainersListView()
         case .images:
             ImagesListView()
-        case .volumes, .networks, .system:
+        case .volumes:
+            VolumesListView()
+        case .networks, .system:
             ComingSoonView(section: model.selectedSection)
         }
     }

@@ -216,6 +216,50 @@ public struct LiveBackend: ContainerBackend {
         return candidates.last ?? "/bin/sh"
     }
 
+    // MARK: - Volumes
+
+    public func listVolumes() async throws -> [VolumeItem] {
+        try await mapErrors {
+            try await ClientVolume.list()
+                .map(VolumeItem.init(configuration:))
+                .sorted { $0.name < $1.name }
+        }
+    }
+
+    @discardableResult
+    public func createVolume(_ spec: VolumeSpec) async throws -> VolumeItem {
+        try await mapErrors {
+            // Validated with the runtime's own rule rather than only the
+            // sheet's, so the two can never disagree.
+            try Utility.validEntityName(spec.trimmedName)
+            let configuration = try await ClientVolume.create(
+                name: spec.trimmedName,
+                driver: spec.driver,
+                driverOpts: Dictionary(
+                    spec.options.filter { !$0.isEmpty }.map { ($0.key, $0.value) },
+                    uniquingKeysWith: { _, last in last }
+                ),
+                labels: Dictionary(
+                    spec.labels.filter { !$0.isEmpty }.map { ($0.key, $0.value) },
+                    uniquingKeysWith: { _, last in last }
+                )
+            )
+            return VolumeItem(configuration: configuration)
+        }
+    }
+
+    public func deleteVolume(name: String) async throws {
+        try await mapErrors {
+            try await ClientVolume.delete(name: name)
+        }
+    }
+
+    public func volumeDiskUsage(name: String) async throws -> UInt64 {
+        try await mapErrors {
+            try await ClientVolume.volumeDiskUsage(name: name)
+        }
+    }
+
     public func logHandles(id: String) async throws -> ContainerLogHandles {
         try await mapErrors {
             // Upstream's order, as `container logs` relies on it: index 0 is
@@ -672,6 +716,21 @@ extension ImageVariant {
             ),
             labels: config?.labels ?? [:],
             stopSignal: config?.stopSignal
+        )
+    }
+}
+
+extension VolumeItem {
+    init(configuration: VolumeConfiguration) {
+        self.init(
+            name: configuration.name,
+            driver: configuration.driver,
+            format: configuration.format,
+            source: configuration.source,
+            createdAt: configuration.creationDate,
+            labels: configuration.labels,
+            options: configuration.options,
+            sizeInBytes: configuration.sizeInBytes
         )
     }
 }

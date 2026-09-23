@@ -18,6 +18,9 @@ public final class ContainerDetailStore {
     public private(set) var containerID: String?
 
     private let backend: any ContainerBackend
+    /// Called whenever a detail is loaded, so the app can remember things the
+    /// list does not carry — such as which volumes a container mounts.
+    public var onDetailLoaded: ((ContainerDetail) -> Void)?
 
     public init(backend: any ContainerBackend) {
         self.backend = backend
@@ -56,7 +59,9 @@ public final class ContainerDetailStore {
         guard let containerID else { return }
         if showSpinner { isLoading = true }
         do {
-            detail = try await backend.containerDetail(id: containerID)
+            let loaded = try await backend.containerDetail(id: containerID)
+            detail = loaded
+            onDetailLoaded?(loaded)
             lastError = nil
         } catch let error as DockyardError where error.isDaemonDown {
             detail = nil

@@ -51,11 +51,21 @@ struct IntegrationFixture: Sendable {
         for try await _ in backend.pullImage(reference: Self.testImage, platform: nil) {}
     }
 
-    /// Removes every container and image this fixture could have created.
+    /// Removes every container, image and volume this fixture could have
+    /// created.
+    ///
+    /// Order matters: a volume cannot be deleted while a container still
+    /// mounts it, so containers go first. Getting this wrong leaves volumes
+    /// behind, silently, because each delete is best-effort.
     func cleanUp() async {
         if let containers = try? await backend.listContainers() {
             for container in containers where container.id.hasPrefix(prefix) {
                 try? await backend.deleteContainer(id: container.id, force: true)
+            }
+        }
+        if let volumes = try? await backend.listVolumes() {
+            for volume in volumes where volume.name.hasPrefix(prefix) {
+                try? await backend.deleteVolume(name: volume.name)
             }
         }
         if let images = try? await backend.listImages() {

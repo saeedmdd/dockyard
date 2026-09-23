@@ -37,6 +37,18 @@ public protocol ContainerBackend: Sendable {
     /// Used for one-shot commands rather than an interactive session.
     func execCapturing(containerID: String, command: [String]) async throws -> (output: String, exitCode: Int32)
 
+    /// Named volumes the runtime manages.
+    func listVolumes() async throws -> [VolumeItem]
+
+    /// Creates a volume and returns it as the runtime recorded it.
+    @discardableResult
+    func createVolume(_ spec: VolumeSpec) async throws -> VolumeItem
+
+    func deleteVolume(name: String) async throws
+
+    /// Bytes a volume is actually using, which is a separate query from listing.
+    func volumeDiskUsage(name: String) async throws -> UInt64
+
     /// Open file handles for a container's logs.
     ///
     /// These are ordinary files the runtime appends to, so following one means
