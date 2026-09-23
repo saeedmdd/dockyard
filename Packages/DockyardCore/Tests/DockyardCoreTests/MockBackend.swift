@@ -40,6 +40,9 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         var saveImages = 0
         var loadImages = 0
         var diskUsage = 0
+        var listContainersByLabel = 0
+        var dnsDomain = 0
+        var hostResolverDomains = 0
         var kernelInfo = 0
         var prune = 0
     }
@@ -73,6 +76,8 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
     private var _kernel: KernelInfo = .stub()
     /// Names a prune reports as failures, to exercise a partial sweep.
     private var _prunePartialFailures: [String] = []
+    private var _dnsDomain: String?
+    private var _hostResolverDomains: [String] = []
 
     init(
         containers: [ContainerItem] = [],
@@ -120,6 +125,14 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
 
     func setPrunePartialFailures(_ failures: [String]) {
         lock.withLock { _prunePartialFailures = failures }
+    }
+
+    func setDNSDomain(_ domain: String?) {
+        lock.withLock { _dnsDomain = domain }
+    }
+
+    func setHostResolverDomains(_ domains: [String]) {
+        lock.withLock { _hostResolverDomains = domains }
     }
 
     var currentImages: [ImageItem] {
@@ -233,6 +246,49 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
                 reclaimedBytes: reclaimed,
                 failures: failures.map { "\($0): in use" }
             )
+        }
+    }
+
+    /// Applies the filter the way the runtime does: each value is a regular
+    /// expression matched against the label's value, and a container missing
+    /// the label is matched as the empty string.
+    ///
+    /// Deliberately not string equality. Equality would pass the escaping test
+    /// while the real backend happily matched `myXproj` for `my.proj`, which is
+    /// precisely the bug that test exists to catch.
+    func listContainers(matchingLabels labels: [String: String]) async throws -> [ContainerItem] {
+        try lock.withLock {
+            _calls.listContainersByLabel += 1
+            if let _failure { throw _failure }
+            return
+                _containers
+                .filter { container in
+                    labels.allSatisfy { key, pattern in
+                        let value = container.labels[key] ?? ""
+                        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+                        let range = NSRange(value.startIndex..., in: value)
+                        return regex.firstMatch(in: value, range: range) != nil
+                    }
+                }
+                // Sorted like the live backend, which sorts every list it
+                // returns; a mock that returns insertion order would let an
+                // order-dependent bug pass here and fail against the daemon.
+                .sorted { $0.id < $1.id }
+        }
+    }
+
+    func dnsDomain() async throws -> String? {
+        try lock.withLock {
+            _calls.dnsDomain += 1
+            if let _failure { throw _failure }
+            return _dnsDomain
+        }
+    }
+
+    func hostResolverDomains() -> [String] {
+        lock.withLock {
+            _calls.hostResolverDomains += 1
+            return _hostResolverDomains
         }
     }
 
@@ -799,7 +855,8 @@ extension ContainerItem {
         status: ContainerStatus = .running,
         ports: [PortMapping] = [],
         networks: [NetworkAttachment] = [],
-        startedAt: Date? = nil
+        startedAt: Date? = nil,
+        labels: [String: String] = [:]
     ) -> ContainerItem {
         ContainerItem(
             id: id,
@@ -813,7 +870,7 @@ extension ContainerItem {
             memoryInBytes: 1024 * 1024 * 1024,
             ports: ports,
             networks: networks,
-            labels: [:]
+            labels: labels
         )
     }
 }

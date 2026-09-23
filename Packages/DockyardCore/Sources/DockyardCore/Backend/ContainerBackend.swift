@@ -20,6 +20,25 @@ public protocol ContainerBackend: Sendable {
     /// All containers, running or not, excluding the runtime's own machine VMs.
     func listContainers() async throws -> [ContainerItem]
 
+    /// Containers whose labels match.
+    ///
+    /// Values are **regular expressions** matched against the label's value,
+    /// and a container missing the label is matched as the empty string — so an
+    /// anchored pattern excludes unlabelled containers. A caller passing a
+    /// literal must escape it; `ComposeLabels.exactly(_:)` does that.
+    func listContainers(matchingLabels labels: [String: String]) async throws -> [ContainerItem]
+
+    /// The DNS domain the runtime hands containers, or nil when none is set.
+    /// This is what turns a container id into a resolvable `id.domain`.
+    func dnsDomain() async throws -> String?
+
+    /// Local DNS domains this Mac's own resolver has been told about.
+    ///
+    /// Separate from `dnsDomain()`: that decides whether containers can resolve
+    /// each other, this whether *you* can resolve them from the host. Read-only,
+    /// and needs no privileges.
+    func hostResolverDomains() -> [String]
+
     /// Everything about one container, for the detail pane.
     func containerDetail(id: String) async throws -> ContainerDetail
 
