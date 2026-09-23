@@ -56,6 +56,13 @@ jobs:
         working-directory: Packages/DockyardCore
         run: swift test --skip-build --xunit-output ../../test-results.xml
 
+      - name: Report free space
+        run: df -h / | tail -1
+
+      # arm64 only. `generic/platform=macOS` otherwise builds every
+      # architecture, which means compiling the whole `apple/container`
+      # dependency tree twice — on top of the copy the tests just built — for
+      # an x86_64 slice that cannot run this app anyway.
       - name: Build the app
         run: |
           set -o pipefail
@@ -67,6 +74,7 @@ jobs:
             -clonedSourcePackagesDirPath .spm-cache \
             -skipPackagePluginValidation \
             CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
             2>&1 | tee app-build.log
 
       # Last, so it covers every step above it. The job summary is for whoever
@@ -75,6 +83,9 @@ jobs:
       - name: Report what failed
         if: failure()
         run: |
+          echo "### Free space" >> "$GITHUB_STEP_SUMMARY"
+          df -h / | tail -1 >> "$GITHUB_STEP_SUMMARY"
+
           emit() {
             echo "## $1" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"

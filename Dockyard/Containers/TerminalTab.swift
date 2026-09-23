@@ -7,10 +7,14 @@ struct TerminalTab: View {
     @Environment(AppModel.self) private var model
 
     @State private var session: (any ExecSessionHandle)?
-    @State private var state: State = .idle
+    @State private var phase: Phase = .idle
     @State private var exitStatus: Int32?
 
-    enum State: Equatable {
+    /// Deliberately not called `State`: a nested type of that name shadows
+    /// SwiftUI's `State` inside this struct, and `@State` then resolves to the
+    /// enum. Xcode 27 lets it pass; 26.6 rejects it with "enum 'State' cannot
+    /// be used as an attribute", which is how CI found this.
+    enum Phase: Equatable {
         case idle
         case connecting
         case connected
@@ -27,7 +31,7 @@ struct TerminalTab: View {
                     message: "Start it to open a shell."
                 )
             } else {
-                switch state {
+                switch phase {
                 case .idle, .connecting:
                     connecting
                 case .connected:
@@ -67,7 +71,7 @@ struct TerminalTab: View {
     private func terminal(_ session: any ExecSessionHandle) -> some View {
         ContainerTerminalView(session: session) { status in
             exitStatus = status
-            state = .ended
+            phase = .ended
         }
     }
 
@@ -87,19 +91,19 @@ struct TerminalTab: View {
     }
 
     private func connect() async {
-        state = .connecting
+        phase = .connecting
         exitStatus = nil
         do {
             session = try await model.backend.exec(ExecRequest(containerID: container.id))
-            state = .connected
+            phase = .connected
         } catch {
-            state = .failed(DockyardError(mapping: error).errorDescription ?? "Unknown error")
+            phase = .failed(DockyardError(mapping: error).errorDescription ?? "Unknown error")
         }
     }
 
     private func teardown() async {
         await session?.close()
         session = nil
-        state = .idle
+        phase = .idle
     }
 }
