@@ -1,21 +1,88 @@
 # T19 — Search, shortcuts, settings, launch at login
 
-**Milestone:** M5 · **Depends on:** T05–T18 · **Status:** todo
+**Milestone:** M5 · **Depends on:** T05–T18 · **Status:** done*
+
+`done*` — everything is built and verified except the login-item toggle, which cannot be exercised
+from a development build. See "Not verifiable here".
 
 ## Files
-- Search field (`.searchable`) on Containers, Images, Volumes, Networks; filters by name/image/tag.
-- Table sort persistence per table (`@AppStorage` of `KeyPathComparator` ids).
-- Keyboard shortcuts: ⌘1–5 sidebar, ⌘N Run, ⌘⇧P Pull, ⌘B Build, ⌘R refresh now (`poller.tickNow()`), ⌘⌫ delete selected (confirm), ⌘. stop selected, ⌘↩ start selected, ⌘F search in logs.
-- `Dockyard/Settings/SettingsView.swift` (`Settings` scene): poll interval (1–10s), default platform, show infra images, hide window on launch (menu bar only mode), launch at login via `SMAppService.mainApp` with status readback, CLI path override (default `/usr/local/bin/container`).
-- Menu bar: quick actions Run… / Pull… / open System; window restoration.
-- Toasts: single `ToastHost` overlay in `ContentView`, auto-dismiss 6s, click → System log with full error text.
-- Empty states for every list with a primary action (e.g. "Pull an image").
-- Accessibility labels on status dots and icon-only buttons.
+- `Models/Search.swift` — one `Searchable` rule for all four lists, plus the two sort keys that need
+  a fallback (untagged images, containers that never ran).
+- `Settings/AppSettings.swift` — poll interval, default platform, infrastructure images, start
+  hidden, CLI path, per-table sort. Backed by `UserDefaults` directly, since the poller and the
+  backend read it and there is no view there to hang `@AppStorage` on.
+- `Settings/LoginItem.swift` — `SMAppService.mainApp` behind a protocol, with the refusal states
+  spelled out.
+- `Dockyard/Settings/SettingsView.swift` — General and Advanced tabs.
+- `Dockyard/Commands/DockyardCommands.swift` — every shortcut, in the menus.
+- `Dockyard/Components/ToastHost.swift`, `PlainTextLogView.swift`, `SortPersistence.swift`,
+  `StringExtras.swift`.
+- `Dockyard/AppDelegate.swift` — start hidden, and stay alive with no window.
+- Search, empty-state actions and sort persistence across the four list views.
 
 ## Acceptance
-- [ ] Every shortcut above works and appears in the menu bar menus.
-- [ ] Launch at login toggle registers/unregisters (`sfltool dumpbtm` or System Settings → Login Items shows Dockyard).
-- [ ] Poll interval change takes effect without restart.
-- [ ] VoiceOver reads container status.
+- [x] **Every shortcut works and appears in the menu bar menus.** Verified by reading the menus
+      through the accessibility API and by pressing them: ⌘N, ⌘⇧P, ⌘B (File), ⌘F, ⌘⇧F (Edit), ⌘R and
+      ⌘1–⌘5 (View), ⌘↩, ⌘. and ⌘⌫ (Container). ⌘3/⌘5/⌘1 moved between sections; ⌘⌫ opened the delete
+      confirmation for the selected container; ⌘F focused the search field; ⌘B opened the Build
+      sheet; ⌘⇧P pulled an image end to end.
+- [x] **Poll interval takes effect without restart.** With the setting at 10s a volume created from
+      the CLI took 4.7s to appear; at 1s its deletion showed in 1.0s. The value persisted to
+      `com.saeedmdd.Dockyard.pollIntervalSeconds`.
+- [x] **VoiceOver reads container status.** The name cell reports "elasticsearch-node2, Stopped" —
+      the state otherwise exists only as a coloured dot in a column of its own.
+- [ ] **Launch at login** — see below.
+
+Also verified in the running app: search filtering ("elastic" → 3 of 6, "elastic node2" → 1 of 6),
+the no-results state and its Clear Search button, Escape clearing the field, the toast after
+deleting an image ("Deleted docker.io/library/busybox:1.36 · reclaimed 678.3 MB"), the menu bar
+quick actions, and start-in-the-menu-bar (launched with no window, "Open Dockyard" brought it back).
+315 unit tests in 46 suites, 56 integration tests, `xcodebuild` clean. The machine was left as
+found: 6 containers, 9 images, 0 volumes.
+
+## Findings
+
+- **A menu command that switched section and opened a sheet in the same tick did nothing.** ⌘B and
+  ⌘⇧P set `selectedSection` and a `Bool`, but the Images screen does not exist yet at that moment,
+  so its `onChange` never fired — and the flag stayed `true`, which made every later press a no-op
+  too. The shortcut was dead for the rest of the session after one use. Both are counters now, read
+  on appear as well as on change; ⌘N had the same latent race and got the same treatment.
+- **⌘F went to the log search, which is only reachable with a container open.** The task sheet
+  assigned ⌘F to the logs, but that is the shortcut people press to filter a list. ⌘F now focuses
+  the current list's search field and ⌘⇧F the log search. Focusing a `.searchable` field from a menu
+  needs `searchable(text:isPresented:)` — there is no focus binding for one.
+- **`BuildStore.onSuccess` could not be an init parameter.** The object that wants the callback is
+  the one that owns the store, and it cannot capture itself until it is fully initialised; as an
+  init parameter this failed to compile with "used before being initialized". It is a settable
+  property.
+- **Accessibility labels reach toolbar items but not in-content buttons.** Through the accessibility
+  API — the same one VoiceOver reads — toolbar buttons report their label, while buttons inside the
+  content (prune, Start/Stop in the System panel, everything in the menu bar panel) report no title
+  and no description at all, with or without `.accessibilityLabel`. The labels are set regardless;
+  what carries the information today is the row text, which does read correctly.
+- **The `container system df` parity test failed most runs until the cheap call went on the
+  outside.** It brackets one reading between two others and accepts a match with either end. With
+  two `container system df` process launches around one XPC call the window was wide enough that the
+  parallel suites changed something inside it nearly every time; with the XPC calls outside and one
+  process launch inside, the window is about half as wide and it is reliably green.
+- Sorts are stored as a column name plus a direction, not an index: renaming or reordering a column
+  would otherwise silently start sorting by the wrong thing. A saved sort whose column the view no
+  longer lists is forgotten rather than half-applied.
+- The poll interval is clamped on the way in as well as on the way out, and the change notification
+  reports the clamped value — otherwise a hand-edited plist could retime the poller to something the
+  settings do not hold.
+
+## Not verifiable here: launch at login
+`SMAppService.mainApp.status` reports `notFound` for a build run out of DerivedData, and the
+Settings window says so ("macOS cannot find this copy of Dockyard.") rather than showing a toggle
+that springs back. Registering a real login item needs the app installed where the system will
+accept it, which is what T20 produces; verifying it there is the right place, and installing a
+development build into `/Applications` to tick this box is not.
+
+The surrounding logic is covered against a fake service: register, unregister, the refusal that a
+development build gets, the approval-required state the user can only undo in System Settings, and
+the lag between a successful `register()` and the status reading back.
 
 ## Notes
+`nilIfEmpty` moved from a `fileprivate` in `RunSheet.swift` to `Components/StringExtras.swift`; the
+second caller in `AppModel` would otherwise have needed its own copy.

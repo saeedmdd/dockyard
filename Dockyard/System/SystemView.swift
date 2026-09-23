@@ -19,6 +19,9 @@ struct SystemView: View {
                     kernelSection(kernel)
                 }
                 logsSection
+                if !model.problems.isEmpty {
+                    problemsSection
+                }
                 filesSection
             }
             .padding(20)
@@ -334,6 +337,45 @@ struct SystemView: View {
                     PlainTextLogView(store: system, version: system.logVersion)
                         .frame(height: 260)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    // MARK: - Problems
+
+    /// What the toasts said, in full, for as long as the app is running.
+    ///
+    /// A toast is gone in six seconds — fine for noticing, useless for copying
+    /// an upstream message into a bug report.
+    private var problemsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Recent problems").font(.headline)
+                Spacer()
+                Button("Clear") { model.clearProblems() }
+                    .buttonStyle(.link)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(model.problems.enumerated()), id: \.element.id) { index, problem in
+                    if index > 0 { Divider() }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(problem.title)
+                            .font(.callout.weight(.medium))
+                            .textSelection(.enabled)
+                        if let detail = problem.detail {
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(12)

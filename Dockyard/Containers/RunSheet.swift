@@ -345,7 +345,3 @@ struct LabeledField<Content: View>: View {
         }
     }
 }
-
-extension String {
-    fileprivate var nilIfEmpty: String? { isEmpty ? nil : self }
-}

@@ -202,7 +202,7 @@ private final class ScriptedBuildRunner: BuildRunning, @unchecked Sendable {
         var refreshed = false
         let store = BuildStore(
             cli: ScriptedBuildRunner(lines: ["#1 [internal] load build definition", "#2 DONE"]),
-            onSuccess: { refreshed = true }
+            onSuccess: { _ in refreshed = true }
         )
 
         let job = store.start(spec())

@@ -5,6 +5,7 @@ import SwiftUI
 struct DockyardApp: App {
     static let mainWindowID = "dockyard.main"
 
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()
 
     var body: some Scene {
@@ -13,34 +14,11 @@ struct DockyardApp: App {
                 .environment(model)
         }
         .defaultSize(width: 1100, height: 700)
-        .commands {
-            CommandGroup(replacing: .newItem) {}
-            CommandGroup(after: .toolbar) {
-                Button("Refresh") {
-                    Task { await model.refreshNow() }
-                }
-                .keyboardShortcut("r")
-            }
-            SidebarCommands()
-            CommandGroup(after: .newItem) {
-                Button("Run Container…") {
-                    model.selectedSection = .containers
-                    model.runSheetRequest = RunSheetRequest(image: nil)
-                }
-                .keyboardShortcut("n")
+        .commands { DockyardCommands(model: model) }
 
-                Button("Build Image…") {
-                    model.selectedSection = .images
-                    model.isBuildSheetRequested = true
-                }
-                .keyboardShortcut("b", modifiers: [.command, .shift])
-
-                Button("Pull Image…") {
-                    model.selectedSection = .images
-                    model.isPullSheetRequested = true
-                }
-                .keyboardShortcut("p", modifiers: [.command, .shift])
-            }
+        Settings {
+            SettingsView()
+                .environment(model)
         }
 
         MenuBarExtra("Dockyard", systemImage: "shippingbox") {

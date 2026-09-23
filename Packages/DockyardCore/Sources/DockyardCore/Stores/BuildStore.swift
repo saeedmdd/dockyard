@@ -36,6 +36,12 @@ public final class BuildJob: Identifiable, Sendable {
         output.lines.last?.text
     }
 
+    /// The exit code, when the build failed with one.
+    public var exitCode: Int32? {
+        if case .failed(let code) = state { return code }
+        return nil
+    }
+
     func attach(_ task: Task<Void, Never>) {
         self.task = task
     }
@@ -65,12 +71,31 @@ public final class BuildJob: Identifiable, Sendable {
 public final class BuildStore {
     public private(set) var jobs: [BuildJob] = []
 
-    private let cli: any BuildRunning
-    private let onSuccess: () async -> Void
+    private var cli: any BuildRunning
+    /// Called with the finished job, so the caller can refresh and say what was
+    /// built: a build takes long enough that the user has usually navigated
+    /// away by the time it lands, and "a build finished" is not worth saying.
+    ///
+    /// Settable rather than an init parameter because the owner is usually the
+    /// object that wants to be called back, and it cannot capture itself until
+    /// it is fully initialised.
+    public var onSuccess: (BuildJob) async -> Void
+    /// Called with a job that failed. A build's output lives in its own row,
+    /// but the row is on the Images screen and a build outlasts the user's
+    /// attention, so something has to say it did not work.
+    public var onFailure: (BuildJob) -> Void = { _ in }
 
-    public init(cli: any BuildRunning = CLIRunner(), onSuccess: @escaping () async -> Void = {}) {
+    public init(cli: any BuildRunning = CLIRunner(), onSuccess: @escaping (BuildJob) async -> Void = { _ in }) {
         self.cli = cli
         self.onSuccess = onSuccess
+    }
+
+    /// Points the store at a different `container` binary.
+    ///
+    /// Builds already running keep the stream they started with; only the next
+    /// one uses the new path.
+    public func useRunner(_ runner: any BuildRunning) {
+        cli = runner
     }
 
     public var activeJobs: [BuildJob] {
@@ -92,7 +117,7 @@ public final class BuildStore {
                 // throwing, so success is never inferred from the loop ending.
                 try Task.checkCancellation()
                 job.finish(.succeeded)
-                await onSuccess()
+                await onSuccess(job)
             } catch is CancellationError {
                 job.finish(.cancelled)
             } catch let error as DockyardError {
@@ -103,13 +128,16 @@ public final class BuildStore {
                         job.append(CLILine(stream: .stderr, text: String(line)))
                     }
                     job.finish(.failed(exitCode: exitCode))
+                    onFailure(job)
                 } else {
                     job.append(CLILine(stream: .stderr, text: error.errorDescription ?? "Build failed"))
                     job.finish(.failed(exitCode: -1))
+                    onFailure(job)
                 }
             } catch {
                 job.append(CLILine(stream: .stderr, text: error.localizedDescription))
                 job.finish(.failed(exitCode: -1))
+                onFailure(job)
             }
         }
         job.attach(task)

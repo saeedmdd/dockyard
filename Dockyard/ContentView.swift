@@ -25,6 +25,7 @@ struct ContentView: View {
                 OnboardingView()
             }
         }
+        .overlay { ToastHost() }
         .frame(minWidth: 860, minHeight: 500)
         .task { await model.refreshNow() }
         .onAppear { model.windowAppeared() }

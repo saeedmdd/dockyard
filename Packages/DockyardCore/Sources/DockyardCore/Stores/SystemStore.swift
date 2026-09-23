@@ -29,12 +29,25 @@ public final class SystemStore {
     public private(set) var panelError: DockyardError?
 
     private let backend: any ContainerBackend
-    private let cli: any DaemonController
+    private var cli: any DaemonController
     private var operation: Task<Void, Never>?
 
     public init(backend: any ContainerBackend, cli: any DaemonController = CLIRunner()) {
         self.backend = backend
         self.cli = cli
+    }
+
+    /// Points the store at a different `container` binary, for the CLI path
+    /// setting.
+    ///
+    /// Refused mid-start: the running process was launched from the old path
+    /// and its stream is still being consumed, so swapping underneath it would
+    /// leave the transcript attributed to a binary that never produced it.
+    @discardableResult
+    public func useController(_ controller: any DaemonController) -> Bool {
+        guard !status.isTransitioning else { return false }
+        cli = controller
+        return true
     }
 
     /// Re-checks where the daemon stands.

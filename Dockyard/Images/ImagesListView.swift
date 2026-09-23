@@ -4,11 +4,14 @@ import UniformTypeIdentifiers
 
 struct ImagesListView: View {
     @Environment(AppModel.self) private var model
+    @State private var isSearchPresented = false
     @State private var sortOrder = [KeyPathComparator(\ImageItem.displayReference)]
     @State private var isShowingPullSheet = false
     @State private var tagTarget: ImageItem?
     @State private var deletionTarget: ImageItem?
     @State private var isShowingBuildSheet = false
+    @State private var handledBuildRequest = 0
+    @State private var handledPullRequest = 0
     @State private var isShowingRegistrySheet = false
     @State private var pushTarget: ImageItem?
 
@@ -21,9 +24,6 @@ struct ImagesListView: View {
         VStack(spacing: 0) {
             if let error = model.images.actionError {
                 ActionErrorBanner(error: error) { model.images.clearActionError() }
-            }
-            if let note = model.statusNote {
-                StatusNoteBanner(text: note) { model.dismissStatusNote() }
             }
             if let note = model.registry.statusNote {
                 StatusNoteBanner(text: note) { model.registry.clearStatusNote() }
@@ -42,8 +42,15 @@ struct ImagesListView: View {
                 EmptyListView(
                     symbol: "square.stack.3d.up",
                     title: model.images.isLoadingInitially ? "Loading…" : "No images yet",
-                    message: model.images.isLoadingInitially ? nil : emptyMessage
+                    message: model.images.isLoadingInitially ? nil : emptyMessage,
+                    actionTitle: model.images.isLoadingInitially ? nil : "Pull an Image…",
+                    action: model.images.isLoadingInitially ? nil : { isShowingPullSheet = true }
                 )
+                .frame(maxHeight: .infinity)
+            } else if visibleImages.isEmpty {
+                NoSearchResultsView(query: model.searchQuery, noun: "images") {
+                    model.searchQuery = ""
+                }
                 .frame(maxHeight: .infinity)
             } else {
                 HSplitView {
@@ -58,15 +65,41 @@ struct ImagesListView: View {
         }
         .navigationTitle("Images")
         .navigationSubtitle(subtitle)
+        .searchable(
+            text: $model.searchQuery,
+            isPresented: $isSearchPresented,
+            placement: .toolbar,
+            prompt: "Repository, tag, digest"
+        )
+        // `isPresented` is the only way to put the cursor in the field from a
+        // menu command; there is no focus binding for a search field.
+        .onChange(of: model.findRequest) { isSearchPresented = true }
+        .persistentSort(
+            $sortOrder,
+            table: .images,
+            columns: [
+                "repository": KeyPathComparator(\ImageItem.repository),
+                "tag": KeyPathComparator(\ImageItem.sortableTag),
+                "reference": KeyPathComparator(\ImageItem.displayReference),
+            ]
+        )
         .sheet(item: $tagTarget) { image in
             TagImageSheet(image: image)
         }
         .deleteImageConfirmation(target: $deletionTarget)
+        .onChange(of: model.deleteSelectionRequest) {
+            if let id = model.selectedImageID,
+                let image = model.images.items.first(where: { $0.id == id })
+            {
+                deletionTarget = image
+            }
+        }
         .toolbar {
             Button("Registries", systemImage: "key") {
                 isShowingRegistrySheet = true
             }
             .help("Sign in to a registry")
+                .accessibilityLabel("Registries")
 
             Menu("Archive", systemImage: "archivebox") {
                 Button("Save Selected Image…") { saveSelected() }
@@ -74,16 +107,19 @@ struct ImagesListView: View {
                 Button("Load from Archive…") { loadArchive() }
             }
             .help("Save images to a tar archive, or load them back")
+                .accessibilityLabel("Save or load a tar archive")
 
             Button("Build Image", systemImage: "hammer") {
                 isShowingBuildSheet = true
             }
             .help("Build an image from a Dockerfile")
+                .accessibilityLabel("Build an image")
 
             Button("Pull Image", systemImage: "arrow.down.circle") {
                 isShowingPullSheet = true
             }
             .help("Pull an image from a registry")
+                .accessibilityLabel("Pull an image")
 
             Toggle("Show runtime images", isOn: $images.showsInfrastructure)
                 .toggleStyle(.switch)
@@ -102,17 +138,24 @@ struct ImagesListView: View {
         .sheet(item: $pushTarget) { image in
             PushSheet(image: image)
         }
-        .onChange(of: model.isBuildSheetRequested) { _, requested in
-            if requested {
-                isShowingBuildSheet = true
-                model.isBuildSheetRequested = false
-            }
+        .onAppear(perform: openRequestedSheet)
+        .onChange(of: model.buildSheetRequest) { openRequestedSheet() }
+        .onChange(of: model.pullSheetRequest) { openRequestedSheet() }
+    }
+
+    /// Opens whichever sheet was asked for since this screen last looked.
+    ///
+    /// Counters, not flags: the request usually arrives before this view
+    /// exists, so it has to be readable after the fact rather than only as a
+    /// change. `handled*` is what stops the sheet reopening on every appear.
+    private func openRequestedSheet() {
+        if model.buildSheetRequest != handledBuildRequest {
+            handledBuildRequest = model.buildSheetRequest
+            isShowingBuildSheet = true
         }
-        .onChange(of: model.isPullSheetRequested) { _, requested in
-            if requested {
-                isShowingPullSheet = true
-                model.isPullSheetRequested = false
-            }
+        if model.pullSheetRequest != handledPullRequest {
+            handledPullRequest = model.pullSheetRequest
+            isShowingPullSheet = true
         }
     }
 
@@ -120,7 +163,7 @@ struct ImagesListView: View {
         @Bindable var model = model
 
         return Table(
-                    model.images.visibleItems.sorted(using: sortOrder),
+                    visibleImages.sorted(using: sortOrder),
                     selection: $model.selectedImageID,
                     sortOrder: $sortOrder
                 ) {
@@ -132,7 +175,7 @@ struct ImagesListView: View {
                     }
                     .width(min: 160, ideal: 280)
 
-                    TableColumn("Tag") { image in
+                    TableColumn("Tag", value: \.sortableTag) { image in
                         Text(image.tag ?? "—")
                             .foregroundStyle(.secondary)
                     }
@@ -195,9 +238,19 @@ struct ImagesListView: View {
         return "Pull an image to get started."
     }
 
+    /// The rows the search leaves, out of the ones the infrastructure filter
+    /// already allows.
+    private var visibleImages: [ImageItem] {
+        model.images.visibleItems.matching(model.searchQuery)
+    }
+
     private var subtitle: String {
         let visible = model.images.visibleItems.count
         guard visible > 0 else { return "" }
+        let shown = visibleImages.count
+        if shown != visible {
+            return "\(shown) of \(visible) shown"
+        }
         let hidden = model.images.showsInfrastructure ? 0 : model.images.infrastructureCount
         return hidden > 0 ? "\(visible) shown · \(hidden) runtime hidden" : "\(visible) images"
     }

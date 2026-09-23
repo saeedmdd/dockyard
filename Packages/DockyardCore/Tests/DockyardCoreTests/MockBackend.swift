@@ -795,13 +795,14 @@ extension ContainerItem {
         image: String = "docker.io/library/nginx:latest",
         status: ContainerStatus = .running,
         ports: [PortMapping] = [],
-        networks: [NetworkAttachment] = []
+        networks: [NetworkAttachment] = [],
+        startedAt: Date? = nil
     ) -> ContainerItem {
         ContainerItem(
             id: id,
             image: image,
             status: status,
-            startedAt: status == .running ? Date(timeIntervalSince1970: 1_700_000_000) : nil,
+            startedAt: startedAt ?? (status == .running ? Date(timeIntervalSince1970: 1_700_000_000) : nil),
             createdAt: Date(timeIntervalSince1970: 1_699_000_000),
             os: "linux",
             architecture: "arm64",
@@ -818,12 +819,13 @@ extension ImageItem {
     static func stub(
         reference: String = "docker.io/library/alpine:3.20",
         displayReference: String = "alpine:3.20",
+        digest: String = "sha256:0123456789abcdef0123456789abcdef",
         isInfrastructure: Bool = false
     ) -> ImageItem {
         ImageItem(
             reference: reference,
             displayReference: displayReference,
-            digest: "sha256:0123456789abcdef0123456789abcdef",
+            digest: digest,
             mediaType: "application/vnd.oci.image.index.v1+json",
             isInfrastructure: isInfrastructure
         )

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContainersListView: View {
     @Environment(AppModel.self) private var model
+    @State private var isSearchPresented = false
     @State private var sortOrder = [KeyPathComparator(\ContainerItem.id)]
     @State private var deletionTarget: ContainerItem?
     @State private var isConfirmingPrune = false
@@ -24,8 +25,15 @@ struct ContainersListView: View {
                     title: model.containers.isLoadingInitially ? "Loading…" : "No containers yet",
                     message: model.containers.isLoadingInitially
                         ? nil
-                        : "Run an image to create one. The Run sheet arrives in T11."
+                        : "Run an image to create one.",
+                    actionTitle: model.containers.isLoadingInitially ? nil : "Run a Container…",
+                    action: model.containers.isLoadingInitially
+                        ? nil : { runRequest = RunSheetRequest(image: nil) }
                 )
+            } else if visibleContainers.isEmpty {
+                NoSearchResultsView(query: model.searchQuery, noun: "containers") {
+                    model.searchQuery = ""
+                }
             } else {
                 // The detail pane sits beside the table rather than replacing
                 // it, so the user keeps their place in the list while reading.
@@ -41,17 +49,40 @@ struct ContainersListView: View {
         }
         .navigationTitle("Containers")
         .navigationSubtitle(subtitle)
+        .searchable(
+            text: $model.searchQuery,
+            isPresented: $isSearchPresented,
+            placement: .toolbar,
+            prompt: "Name, image, port, IP"
+        )
+        // `isPresented` is the only way to put the cursor in the field from a
+        // menu command; there is no focus binding for a search field.
+        .onChange(of: model.findRequest) { isSearchPresented = true }
+        .persistentSort(
+            $sortOrder,
+            table: .containers,
+            columns: [
+                "name": KeyPathComparator(\ContainerItem.id),
+                "image": KeyPathComparator(\ContainerItem.image),
+                "state": KeyPathComparator(\ContainerItem.status.rawValue),
+                "started": KeyPathComparator(\ContainerItem.sortableStartDate),
+            ]
+        )
         .toolbar { toolbarContent }
         .deleteContainerConfirmation(target: $deletionTarget, actions: actions)
+        // ⌘⌫ asks; the list opens its own confirmation, worded for what it
+        // deletes, rather than the menu trying to own that dialog.
+        .onChange(of: model.deleteSelectionRequest) {
+            if let selected = model.selectedContainer { deletionTarget = selected }
+        }
         .sheet(item: $runRequest) { request in
             RunSheet(image: request.image)
         }
-        .onChange(of: model.runSheetRequest?.id) { _, _ in
-            if let request = model.runSheetRequest {
-                runRequest = request
-                model.runSheetRequest = nil
-            }
-        }
+        // Read on appear as well as on change, for the same reason the Images
+        // sheets are: ⌘N switches section and asks in one tick, so this view
+        // usually does not exist yet when the request lands.
+        .onAppear(perform: openRequestedRunSheet)
+        .onChange(of: model.runSheetRequest?.id) { openRequestedRunSheet() }
         .confirmationDialog(
             "Delete all stopped containers?",
             isPresented: $isConfirmingPrune,
@@ -72,7 +103,7 @@ struct ContainersListView: View {
         // Sorted at the view rather than in the store, so each poll's fresh
         // data keeps whatever order the user picked.
         return Table(
-            model.containers.items.sorted(using: sortOrder),
+            visibleContainers.sorted(using: sortOrder),
             selection: $model.selectedContainerID,
             sortOrder: $sortOrder
         ) {
@@ -89,6 +120,11 @@ struct ContainersListView: View {
                     .fontWeight(.medium)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    // The state lives in a column of its own as a coloured dot,
+                    // so the name carries it for anyone reading row by row.
+                    .accessibilityLabel(
+                        "\(container.id), \(model.containers.displayStatus(for: container))"
+                    )
             }
             .width(min: 120, ideal: 200)
 
@@ -100,7 +136,7 @@ struct ContainersListView: View {
             }
             .width(min: 140, ideal: 240)
 
-            TableColumn("State") { container in
+            TableColumn("State", value: \.status.rawValue) { container in
                 Text(model.containers.displayStatus(for: container))
                     .foregroundStyle(container.status == .running ? .primary : .secondary)
             }
@@ -118,7 +154,7 @@ struct ContainersListView: View {
             }
             .width(110)
 
-            TableColumn("Started") { container in
+            TableColumn("Started", value: \.sortableStartDate) { container in
                 RelativeDateCell(date: container.startedAt)
             }
             .width(90)
@@ -151,24 +187,28 @@ struct ContainersListView: View {
                 runRequest = RunSheetRequest(image: nil)
             }
             .help("Create and run a container")
+                .accessibilityLabel("Run a container")
 
             Button("Start", systemImage: "play.fill") {
                 if let selected { actions.start(selected) }
             }
             .disabled(selected.map { !actions.canStart($0) || actions.isBusy($0) } ?? true)
             .help("Start the selected container")
+                .accessibilityLabel("Start the selected container")
 
             Button("Stop", systemImage: "stop.fill") {
                 if let selected { actions.stop(selected) }
             }
             .disabled(selected.map { !actions.canStop($0) || actions.isBusy($0) } ?? true)
             .help("Stop the selected container")
+                .accessibilityLabel("Stop the selected container")
 
             Button("Delete", systemImage: "trash") {
                 deletionTarget = selected
             }
             .disabled(selected == nil)
             .help("Delete the selected container")
+                .accessibilityLabel("Delete the selected container")
 
             Spacer()
 
@@ -177,7 +217,19 @@ struct ContainersListView: View {
             }
             .disabled(stoppedCount == 0)
             .help("Delete all stopped containers")
+                .accessibilityLabel("Delete all stopped containers")
         }
+    }
+
+    private func openRequestedRunSheet() {
+        guard let request = model.runSheetRequest else { return }
+        runRequest = request
+        model.runSheetRequest = nil
+    }
+
+    /// The rows the search leaves.
+    private var visibleContainers: [ContainerItem] {
+        model.containers.items.matching(model.searchQuery)
     }
 
     private var stoppedCount: Int {
@@ -186,8 +238,14 @@ struct ContainersListView: View {
 
     private var subtitle: String {
         let total = model.containers.items.count
-        let running = model.containers.running.count
-        return total == 0 ? "" : "\(running) running of \(total)"
+        guard total > 0 else { return "" }
+        let shown = visibleContainers.count
+        // While searching, the count that matters is how many are on screen —
+        // but the total has to stay visible or the list looks like it lost rows.
+        if shown != total {
+            return "\(shown) of \(total) shown"
+        }
+        return "\(model.containers.running.count) running of \(total)"
     }
 }
 
@@ -208,7 +266,21 @@ struct ContainerStatusBadge: View {
                         .scaleEffect(1.9)
                 }
             }
-            .accessibilityLabel(status.rawValue)
+            .accessibilityLabel(accessibilityDescription)
+    }
+
+    /// Read aloud in place of a coloured dot, which VoiceOver cannot describe.
+    /// "Running" alone is ambiguous next to a name; saying what is running, and
+    /// that an action is under way, is what a sighted user gets from the pulse.
+    private var accessibilityDescription: String {
+        let state =
+            switch status {
+            case .running: "Running"
+            case .stopping: "Stopping"
+            case .stopped: "Stopped"
+            case .unknown: "State unknown"
+            }
+        return isBusy ? "\(state), working" : state
     }
 
     private var color: Color {
@@ -302,6 +374,11 @@ struct EmptyListView: View {
     let symbol: String
     let title: String
     var message: String?
+    /// The one thing worth doing from an empty list — pulling an image, running
+    /// a container. Omitted where there is nothing sensible to offer, such as
+    /// while a list is still loading.
+    var actionTitle: String?
+    var action: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 10) {
@@ -317,7 +394,32 @@ struct EmptyListView: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 360)
             }
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.borderedProminent)
+                    .padding(.top, 4)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Shown when a search hides everything, in place of a list's own empty state.
+///
+/// Distinct wording matters: "No containers yet" next to a full search field
+/// reads as if the containers were deleted.
+struct NoSearchResultsView: View {
+    let query: String
+    let noun: String
+    let clear: () -> Void
+
+    var body: some View {
+        EmptyListView(
+            symbol: "magnifyingglass",
+            title: "No \(noun) match “\(query)”",
+            message: "Every word has to appear somewhere in the row.",
+            actionTitle: "Clear Search",
+            action: clear
+        )
     }
 }

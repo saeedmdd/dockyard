@@ -3,6 +3,7 @@ import SwiftUI
 
 struct VolumesListView: View {
     @Environment(AppModel.self) private var model
+    @State private var isSearchPresented = false
     @State private var sortOrder = [KeyPathComparator(\VolumeItem.name)]
     @State private var isShowingCreateSheet = false
     @State private var deletionTarget: VolumeItem?
@@ -21,8 +22,15 @@ struct VolumesListView: View {
                     title: model.volumes.isLoadingInitially ? "Loading…" : "No volumes yet",
                     message: model.volumes.isLoadingInitially
                         ? nil
-                        : "Volumes keep data that outlives the container using it."
+                        : "Volumes keep data that outlives the container using it.",
+                    actionTitle: model.volumes.isLoadingInitially ? nil : "New Volume…",
+                    action: model.volumes.isLoadingInitially ? nil : { isShowingCreateSheet = true }
                 )
+                .frame(maxHeight: .infinity)
+            } else if visibleVolumes.isEmpty {
+                NoSearchResultsView(query: model.searchQuery, noun: "volumes") {
+                    model.searchQuery = ""
+                }
                 .frame(maxHeight: .infinity)
             } else {
                 HSplitView {
@@ -36,23 +44,57 @@ struct VolumesListView: View {
             }
         }
         .navigationTitle("Volumes")
-        .navigationSubtitle(model.volumes.items.isEmpty ? "" : "\(model.volumes.items.count) volumes")
+        .navigationSubtitle(volumesSubtitle)
+        .searchable(
+            text: $model.searchQuery,
+            isPresented: $isSearchPresented,
+            placement: .toolbar,
+            prompt: "Name or driver"
+        )
+        // `isPresented` is the only way to put the cursor in the field from a
+        // menu command; there is no focus binding for a search field.
+        .onChange(of: model.findRequest) { isSearchPresented = true }
+        .persistentSort(
+            $sortOrder,
+            table: .volumes,
+            columns: [
+                "name": KeyPathComparator(\VolumeItem.name),
+                "driver": KeyPathComparator(\VolumeItem.driver),
+                "created": KeyPathComparator(\VolumeItem.createdAt),
+            ]
+        )
         .toolbar {
             Button("New Volume", systemImage: "plus") {
                 isShowingCreateSheet = true
             }
             .help("Create a volume")
+                .accessibilityLabel("Create a volume")
 
             Button("Delete", systemImage: "trash") {
                 deletionTarget = selectedVolume
             }
             .disabled(selectedVolume == nil)
             .help("Delete the selected volume")
+                .accessibilityLabel("Delete the selected volume")
         }
         .sheet(isPresented: $isShowingCreateSheet) {
             CreateVolumeSheet()
         }
         .deleteVolumeConfirmation(target: $deletionTarget)
+        .onChange(of: model.deleteSelectionRequest) {
+            if let selected = selectedVolume { deletionTarget = selected }
+        }
+    }
+
+    private var visibleVolumes: [VolumeItem] {
+        model.volumes.items.matching(model.searchQuery)
+    }
+
+    private var volumesSubtitle: String {
+        let total = model.volumes.items.count
+        guard total > 0 else { return "" }
+        let shown = visibleVolumes.count
+        return shown == total ? "\(total) volumes" : "\(shown) of \(total) shown"
     }
 
     private var selectedVolume: VolumeItem? {
@@ -65,7 +107,7 @@ struct VolumesListView: View {
         @Bindable var model = model
 
         return Table(
-            model.volumes.items.sorted(using: sortOrder),
+            visibleVolumes.sorted(using: sortOrder),
             selection: $model.selectedVolumeName,
             sortOrder: $sortOrder
         ) {
@@ -77,7 +119,7 @@ struct VolumesListView: View {
             }
             .width(min: 140, ideal: 220)
 
-            TableColumn("Driver") { volume in
+            TableColumn("Driver", value: \.driver) { volume in
                 Text(volume.driver).foregroundStyle(.secondary)
             }
             .width(80)
@@ -92,7 +134,7 @@ struct VolumesListView: View {
             }
             .width(min: 100, ideal: 180)
 
-            TableColumn("Created") { volume in
+            TableColumn("Created", value: \.createdAt) { volume in
                 RelativeDateCell(date: volume.createdAt)
             }
             .width(100)

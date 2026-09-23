@@ -55,8 +55,22 @@ final class AppModel {
     let volumes: VolumeStore
     let networks: NetworkStore
     let registry: RegistryStore
+    let settings: AppSettings
+    let loginItem = LoginItem()
 
-    var selectedSection: SidebarSection = .containers
+    var selectedSection: SidebarSection = .containers {
+        didSet {
+            guard selectedSection != oldValue else { return }
+            // Each list keeps its own query, but carrying a stale one into a
+            // section the user has just switched to hides rows for no visible
+            // reason — the field is off screen while they look at the result.
+            searchQuery = ""
+            Task { await refreshNow() }
+        }
+    }
+
+    /// What is typed in the current list's search field.
+    var searchQuery: String = ""
     var selectedContainerID: ContainerItem.ID? {
         didSet {
             guard selectedContainerID != oldValue else { return }
@@ -71,14 +85,27 @@ final class AppModel {
             Task { await imageDetail.select(selectedImageID) }
         }
     }
-    /// Set by the menu command so the Images screen can open its pull sheet.
-    var isPullSheetRequested = false
-    var isBuildSheetRequested = false
+    /// Bumped by ⌘⌫ so whichever list is on screen opens its own delete
+    /// confirmation. The menu cannot show those dialogs itself — each one is
+    /// worded for what it deletes — so it asks rather than tells.
+    var deleteSelectionRequest = 0
+    /// Bumped by ⌘F, so whichever list is on screen focuses its search field.
+    var findRequest = 0
+    /// Bumped by ⌘⇧F, for the search inside a container's logs.
+    var logSearchFocusRequest = 0
+
+    /// Counters rather than flags, and read on appear as well as on change.
+    ///
+    /// A menu command switches section and asks for the sheet in the same tick,
+    /// so the Images screen usually does not exist yet when the request lands —
+    /// its `onChange` never fires. As a flag that also left the request stuck
+    /// `true`, which made every later press a no-op and the shortcut dead for
+    /// the rest of the session.
+    var pullSheetRequest = 0
+    var buildSheetRequest = 0
     /// Set by the menu command or an image's Run button; carries the image to
     /// pre-fill when there is one.
     var runSheetRequest: RunSheetRequest?
-
-    private(set) var notice: DockyardError?
 
     /// Polling runs only while the user can see something. Two independent
     /// surfaces can demand it, so they are tracked separately rather than as
@@ -102,9 +129,10 @@ final class AppModel {
     let backend: any ContainerBackend
     private(set) var poller: Poller!
 
-    init(backend: any ContainerBackend = LiveBackend()) {
+    init(backend: any ContainerBackend = LiveBackend(), settings: AppSettings = AppSettings()) {
         self.backend = backend
-        self.system = SystemStore(backend: backend)
+        self.settings = settings
+        self.system = SystemStore(backend: backend, cli: CLIRunner(executablePath: settings.resolvedCLIPath))
         self.containers = ContainerStore(backend: backend)
         self.containerDetail = ContainerDetailStore(backend: backend)
         self.logs = LogStore(backend: backend)
@@ -115,11 +143,34 @@ final class AppModel {
         self.volumes = VolumeStore(backend: backend)
         self.networks = NetworkStore(backend: backend)
         self.registry = RegistryStore(backend: backend)
-        let images = self.images
-        self.builds = BuildStore { await images.refresh() }
-        self.poller = Poller(interval: .seconds(2)) { [weak self] in
+        self.builds = BuildStore()
+        self.images.showsInfrastructure = settings.showsInfrastructureImages
+        self.poller = Poller(interval: settings.pollInterval) { [weak self] in
             await self?.tick()
         }
+        // The settings object deliberately knows nothing about pollers or image
+        // stores; it reports a change and the model decides what that means.
+        settings.onPollIntervalChange = { [weak self] interval in
+            self?.poller.interval = interval
+        }
+        settings.onShowInfrastructureChange = { [weak self] shows in
+            self?.images.showsInfrastructure = shows
+        }
+        builds.onSuccess = { [weak self] job in
+            guard let self else { return }
+            await images.refresh()
+            note("Built \(job.spec.trimmedTag.isEmpty ? "image" : job.spec.trimmedTag)")
+        }
+        builds.onFailure = { [weak self] job in
+            self?.show(
+                .cliFailed(
+                    command: "container build",
+                    exitCode: job.exitCode ?? -1,
+                    output: job.lastLine ?? ""
+                )
+            )
+        }
+        applyCLIPath()
         self.containerDetail.onDetailLoaded = { [weak self] detail in
             self?.recordMounts(for: detail)
         }
@@ -153,6 +204,42 @@ final class AppModel {
             .sorted()
     }
 
+    /// Points the two CLI-backed stores at whatever path the settings hold.
+    ///
+    /// Called at startup and whenever the setting changes. Returns false when a
+    /// start or stop is in flight, so the Settings window can say the change
+    /// will apply once that finishes rather than pretending it took.
+    @discardableResult
+    func applyCLIPath() -> Bool {
+        let runner = CLIRunner(executablePath: settings.resolvedCLIPath)
+        builds.useRunner(runner)
+        guard system.useController(runner) else { return false }
+        Task { await system.refresh() }
+        return true
+    }
+
+    /// The container the Containers list has selected, if any.
+    var selectedContainer: ContainerItem? {
+        selectedContainerID.flatMap { containers.item(id: $0) }
+    }
+
+    /// Whether ⌘⌫ has anything to delete in the section on screen. Menu items
+    /// that do nothing are worse than menu items that are greyed out.
+    var hasDeletableSelection: Bool {
+        switch selectedSection {
+        case .containers: selectedContainerID != nil
+        case .images: selectedImageID != nil
+        case .volumes: selectedVolumeName != nil
+        case .networks: networks.items.first { $0.name == selectedNetworkName }.map { !$0.isBuiltin } ?? false
+        case .system: false
+        }
+    }
+
+    func requestDeleteSelection() {
+        guard hasDeletableSelection else { return }
+        deleteSelectionRequest += 1
+    }
+
     /// Refresh now, from ⌘R or straight after an action.
     func refreshNow() async {
         await poller.tickNow()
@@ -177,24 +264,80 @@ final class AppModel {
         }
     }
 
+    // MARK: - Toasts
+
+    /// Something worth saying once, without stopping what the user is doing.
+    struct Toast: Identifiable, Equatable {
+        enum Kind: Equatable {
+            case note
+            case problem
+        }
+
+        let id = UUID()
+        let kind: Kind
+        let title: String
+        /// The unabbreviated text, kept for the System panel and the clipboard.
+        let detail: String?
+    }
+
+    private(set) var toasts: [Toast] = []
+
+    /// Errors that have been shown, newest first, for the System panel.
+    ///
+    /// A toast is gone in six seconds, which is not long enough to read a long
+    /// upstream message, let alone copy it into a bug report. The panel keeps
+    /// them until the app quits.
+    private(set) var problems: [Toast] = []
+    static let maximumRememberedProblems = 50
+
+    /// Six seconds: long enough to read a line, short enough not to sit over
+    /// the list.
+    static let toastLifetime = Duration.seconds(6)
+
+    func show(_ error: DockyardError) {
+        let toast = Toast(
+            kind: .problem,
+            title: error.errorDescription ?? "Something went wrong",
+            detail: [error.failureReason, error.recoverySuggestion]
+                .compactMap { $0 }
+                .joined(separator: "\n\n")
+                .nilIfEmpty
+        )
+        problems.insert(toast, at: 0)
+        if problems.count > Self.maximumRememberedProblems {
+            problems.removeLast(problems.count - Self.maximumRememberedProblems)
+        }
+        present(toast)
+    }
+
+    func note(_ text: String) {
+        present(Toast(kind: .note, title: text, detail: nil))
+    }
+
     /// A short-lived note about something that succeeded, such as how much
     /// disk a delete actually reclaimed.
-    private(set) var statusNote: String?
-
     func note(reclaimed result: ImageDeletionResult) {
-        statusNote =
+        note(
             result.reclaimedBytes > 0
-            ? "Deleted \(result.reference) · reclaimed \(result.reclaimedBytes.formatted(.byteCount(style: .file)))"
-            : "Deleted \(result.reference) · no space reclaimed, its layers are shared"
-        let note = statusNote
-        Task {
-            try? await Task.sleep(for: .seconds(6))
-            if statusNote == note { statusNote = nil }
+                ? "Deleted \(result.reference) · reclaimed \(DiskUsage.label(result.reclaimedBytes))"
+                : "Deleted \(result.reference) · no space reclaimed, its layers are shared"
+        )
+    }
+
+    func dismiss(_ toast: Toast) {
+        toasts.removeAll { $0.id == toast.id }
+    }
+
+    func clearProblems() {
+        problems.removeAll()
+    }
+
+    private func present(_ toast: Toast) {
+        toasts.append(toast)
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.toastLifetime)
+            self?.dismiss(toast)
         }
     }
 
-    func dismissStatusNote() { statusNote = nil }
-
-    func show(_ error: DockyardError) { notice = error }
-    func dismissNotice() { notice = nil }
 }
