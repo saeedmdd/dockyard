@@ -108,10 +108,6 @@ private struct LoginItemToggle: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            case .unavailable(let reason):
-                Text(reason)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             case .enabled, .disabled:
                 if let error = model.loginItem.lastError {
                     Text(error)

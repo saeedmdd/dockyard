@@ -6,11 +6,11 @@ import ServiceManagement
 ///
 /// `SMAppService.mainApp` registers the bundle itself with the system's Login
 /// Items, which is the modern replacement for the deprecated
-/// `SMLoginItemSetEnabled` and needs no helper target. It only works on a
-/// bundle the system will accept: a development build run straight out of
-/// DerivedData is often refused, and the error is reported rather than hidden,
-/// because a toggle that silently springs back is worse than one that explains
-/// itself.
+/// `SMLoginItemSetEnabled` and needs no helper target. It needs the app to be
+/// somewhere the system will accept — from `/Applications` this works even with
+/// an ad-hoc signature, while a build run straight out of DerivedData is
+/// refused. A refusal is reported rather than hidden, because a toggle that
+/// silently springs back is worse than one that explains itself.
 @MainActor
 @Observable
 public final class LoginItem {
@@ -20,7 +20,6 @@ public final class LoginItem {
         /// The user turned it off in System Settings; the app cannot turn it
         /// back on itself and must send them there.
         case blockedBySystemSettings
-        case unavailable(String)
 
         public var isEnabled: Bool { self == .enabled }
     }
@@ -91,9 +90,14 @@ public struct SystemLoginItemService: LoginItemService {
     public func currentState() -> LoginItem.State {
         switch SMAppService.mainApp.status {
         case .enabled: .enabled
-        case .notRegistered: .disabled
         case .requiresApproval: .blockedBySystemSettings
-        case .notFound: .unavailable("macOS cannot find this copy of Dockyard.")
+        // `notFound` reads like a dead end and is not one: an app in
+        // /Applications that has never been registered reports it, and
+        // registering then succeeds. Treating it as "unavailable" put a
+        // "macOS cannot find this copy of Dockyard" message next to a toggle
+        // that would have worked. Only a refusal from `register()` itself is
+        // worth telling the user about.
+        case .notRegistered, .notFound: .disabled
         @unknown default: .disabled
         }
     }
