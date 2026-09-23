@@ -3,8 +3,8 @@ import PackageDescription
 
 // Pinned to the apple/container release this app is built against. Bumping this
 // is its own task: the XPC protocol must match the installed container-apiserver.
-let containerVersion: Version = "1.0.0"
-let containerizationVersion: Version = "0.33.3"
+let containerVersion: Version = "1.4.1"
+let containerizationVersion: Version = "0.45.0"
 
 let package = Package(
     name: "DockyardCore",

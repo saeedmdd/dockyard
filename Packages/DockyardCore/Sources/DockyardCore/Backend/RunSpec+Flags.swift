@@ -13,7 +13,7 @@ extension RunSpec {
     /// populate their storage during parsing; a directly constructed value
     /// traps on the first read with "Can't read a value from a parsable
     /// argument definition". Parsing `[]` applies every declared default —
-    /// host architecture, `linux`, scheme `auto`, three concurrent downloads —
+    /// host architecture, `linux`, the registry scheme, three concurrent downloads —
     /// which is exactly what the CLI uses when a flag is absent, and is how the
     /// app inherits that behaviour rather than restating it.
     ///
@@ -74,7 +74,16 @@ extension RunSpec {
         resource.cpus = cpus.nonEmpty.flatMap(Int64.init)
         resource.memory = memory.nonEmpty
 
-        return (process, management, resource, try Flags.Registry.parse([]), try Flags.ImageFetch.parse([]))
+        // Upstream's default scheme became `https` in 1.4.1, where 1.0.0 used
+        // `auto`. That silently breaks running an image from a registry on this
+        // machine, which speaks plain HTTP — the same trap T17 hit on push. The
+        // host decides, exactly as it does for pull and push.
+        var registry = try Flags.Registry.parse([])
+        if LiveBackend.isLoopback(LiveBackend.registryHost(of: image)) {
+            registry.scheme = RegistryScheme.http.rawValue
+        }
+
+        return (process, management, resource, registry, try Flags.ImageFetch.parse([]))
     }
 }
 
