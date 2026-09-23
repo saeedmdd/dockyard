@@ -1,5 +1,6 @@
 import DockyardCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ImagesListView: View {
     @Environment(AppModel.self) private var model
@@ -8,6 +9,8 @@ struct ImagesListView: View {
     @State private var tagTarget: ImageItem?
     @State private var deletionTarget: ImageItem?
     @State private var isShowingBuildSheet = false
+    @State private var isShowingRegistrySheet = false
+    @State private var pushTarget: ImageItem?
 
     var body: some View {
         @Bindable var model = model
@@ -21,6 +24,12 @@ struct ImagesListView: View {
             }
             if let note = model.statusNote {
                 StatusNoteBanner(text: note) { model.dismissStatusNote() }
+            }
+            if let note = model.registry.statusNote {
+                StatusNoteBanner(text: note) { model.registry.clearStatusNote() }
+            }
+            ForEach(model.registry.pushes) { job in
+                PullProgressRow(job: job) { model.registry.dismiss(job) }
             }
             ForEach(model.builds.jobs) { job in
                 BuildJobRow(job: job) { model.builds.dismiss(job) }
@@ -41,7 +50,7 @@ struct ImagesListView: View {
                     imagesTable
                         .frame(minWidth: 360, idealWidth: 560)
                     if model.selectedImageID != nil {
-                        ImageDetailView(tagTarget: $tagTarget, deletionTarget: $deletionTarget)
+                        ImageDetailView(tagTarget: $tagTarget, pushTarget: $pushTarget, deletionTarget: $deletionTarget)
                             .frame(minWidth: 340, idealWidth: 420)
                     }
                 }
@@ -54,6 +63,18 @@ struct ImagesListView: View {
         }
         .deleteImageConfirmation(target: $deletionTarget)
         .toolbar {
+            Button("Registries", systemImage: "key") {
+                isShowingRegistrySheet = true
+            }
+            .help("Sign in to a registry")
+
+            Menu("Archive", systemImage: "archivebox") {
+                Button("Save Selected Image…") { saveSelected() }
+                    .disabled(model.selectedImageID == nil)
+                Button("Load from Archive…") { loadArchive() }
+            }
+            .help("Save images to a tar archive, or load them back")
+
             Button("Build Image", systemImage: "hammer") {
                 isShowingBuildSheet = true
             }
@@ -74,6 +95,12 @@ struct ImagesListView: View {
         }
         .sheet(isPresented: $isShowingBuildSheet) {
             BuildSheet()
+        }
+        .sheet(isPresented: $isShowingRegistrySheet) {
+            RegistrySheet()
+        }
+        .sheet(item: $pushTarget) { image in
+            PushSheet(image: image)
         }
         .onChange(of: model.isBuildSheetRequested) { _, requested in
             if requested {
@@ -131,6 +158,33 @@ struct ImagesListView: View {
                     }
                     .width(70)
                 }
+    }
+
+    /// Writes the selected image to a tar archive.
+    private func saveSelected() {
+        guard let id = model.selectedImageID,
+            let image = model.images.items.first(where: { $0.reference == id })
+        else { return }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "tar") ?? .data]
+        panel.nameFieldStringValue = "\(image.repository.replacingOccurrences(of: "/", with: "-")).tar"
+        panel.message = "Save \(image.displayReference) as an archive"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task { await model.registry.save(references: [image.reference], to: url) }
+    }
+
+    private func loadArchive() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [UTType(filenameExtension: "tar") ?? .data]
+        panel.message = "Choose an image archive to load"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            _ = await model.registry.load(from: url)
+            await model.images.refresh()
+        }
     }
 
     private var emptyMessage: String {

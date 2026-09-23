@@ -63,6 +63,7 @@ final class AppModel {
     let builds: BuildStore
     let volumes: VolumeStore
     let networks: NetworkStore
+    let registry: RegistryStore
 
     var selectedSection: SidebarSection = .containers
     var selectedContainerID: ContainerItem.ID? {
@@ -122,6 +123,7 @@ final class AppModel {
         self.run = RunStore(backend: backend)
         self.volumes = VolumeStore(backend: backend)
         self.networks = NetworkStore(backend: backend)
+        self.registry = RegistryStore(backend: backend)
         let images = self.images
         self.builds = BuildStore { await images.refresh() }
         self.poller = Poller(interval: .seconds(2)) { [weak self] in

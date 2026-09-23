@@ -6,6 +6,7 @@ struct ImageDetailView: View {
     @State private var tab: Tab = .overview
     @State private var selectedVariant: String?
     @Binding var tagTarget: ImageItem?
+    @Binding var pushTarget: ImageItem?
     @Binding var deletionTarget: ImageItem?
 
     enum Tab: String, CaseIterable, Identifiable {
@@ -95,6 +96,8 @@ struct ImageDetailView: View {
                         model.runSheetRequest = RunSheetRequest(image: item)
                     }
                     .help("Create a container from this image")
+                    Button("Push…", systemImage: "arrow.up.circle") { pushTarget = item }
+                        .help("Push this image to its registry")
                     Button("Tag…", systemImage: "tag") { tagTarget = item }
                     Button("Delete…", systemImage: "trash") { deletionTarget = item }
                         .disabled(item.isInfrastructure)

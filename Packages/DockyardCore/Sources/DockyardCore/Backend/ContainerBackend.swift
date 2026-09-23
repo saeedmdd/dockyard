@@ -57,6 +57,26 @@ public protocol ContainerBackend: Sendable {
 
     func deleteNetwork(name: String) async throws
 
+    /// Registries this Mac holds credentials for.
+    ///
+    /// These live in the login keychain under the same service the `container`
+    /// CLI uses, so a login made in either place works in both.
+    func listRegistryLogins() throws -> [RegistryLogin]
+
+    func logIn(_ credentials: RegistryCredentials, scheme: RegistryScheme) async throws
+
+    func logOut(hostname: String) throws
+
+    /// Pushes an image to its registry, reporting progress as a pull does.
+    func pushImage(reference: String, platform: String?, scheme: RegistryScheme) -> AsyncThrowingStream<PullProgress, any Error>
+
+    /// Writes images to a tar archive.
+    func saveImages(references: [String], to destination: URL) async throws
+
+    /// Reads images back from a tar archive, returning what it found.
+    @discardableResult
+    func loadImages(from source: URL) async throws -> [String]
+
     /// Open file handles for a container's logs.
     ///
     /// These are ordinary files the runtime appends to, so following one means

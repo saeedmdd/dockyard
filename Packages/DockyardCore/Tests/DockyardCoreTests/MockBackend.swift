@@ -34,6 +34,11 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         var listNetworks = 0
         var createNetwork = 0
         var deleteNetwork = 0
+        var logIn = 0
+        var logOut = 0
+        var push = 0
+        var saveImages = 0
+        var loadImages = 0
     }
 
     /// Records what was asked of each container, in order.
@@ -55,6 +60,8 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
     private var _volumes: [VolumeItem] = []
     private var _volumeUsage: [String: UInt64] = [:]
     private var _networks: [NetworkItem] = []
+    private var _logins: [RegistryLogin] = []
+    private var _loadResult: [String] = []
     private var _pullProgress: [PullProgress] = []
     private var _pullFailure: DockyardError?
     private var _createProgress: [PullProgress] = []
@@ -488,6 +495,91 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
                 )
             }
             _networks.removeAll { $0.name == name }
+        }
+    }
+
+    func setLogins(_ logins: [RegistryLogin]) {
+        lock.withLock { _logins = logins }
+    }
+
+    func setLoadResult(_ references: [String]) {
+        lock.withLock { _loadResult = references }
+    }
+
+    func listRegistryLogins() throws -> [RegistryLogin] {
+        try lock.withLock {
+            if let _failure { throw _failure }
+            return _logins.sorted { $0.hostname < $1.hostname }
+        }
+    }
+
+    func logIn(_ credentials: RegistryCredentials, scheme: RegistryScheme) async throws {
+        try lock.withLock {
+            _calls.logIn += 1
+            if let _failure { throw _failure }
+            _logins.removeAll { $0.hostname == credentials.trimmedHostname }
+            _logins.append(
+                RegistryLogin(
+                    hostname: credentials.trimmedHostname,
+                    username: credentials.trimmedUsername,
+                    createdAt: Date(),
+                    modifiedAt: Date()
+                )
+            )
+        }
+    }
+
+    func logOut(hostname: String) throws {
+        try lock.withLock {
+            _calls.logOut += 1
+            if let _failure { throw _failure }
+            guard _logins.contains(where: { $0.hostname == hostname }) else {
+                throw DockyardError.upstream(code: "notFound", message: "not signed in")
+            }
+            _logins.removeAll { $0.hostname == hostname }
+        }
+    }
+
+    func pushImage(reference: String, platform: String?, scheme: RegistryScheme) -> AsyncThrowingStream<PullProgress, any Error> {
+        let (updates, failure) = lock.withLock { () -> ([PullProgress], DockyardError?) in
+            _calls.push += 1
+            return (_pullProgress, _pullFailure)
+        }
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                for update in updates {
+                    try? await Task.sleep(for: .milliseconds(5))
+                    if Task.isCancelled { break }
+                    continuation.yield(update)
+                }
+                if Task.isCancelled {
+                    continuation.finish(throwing: CancellationError())
+                } else if let failure {
+                    continuation.finish(throwing: failure)
+                } else {
+                    continuation.finish()
+                }
+            }
+            continuation.onTermination = { termination in
+                if case .cancelled = termination { task.cancel() }
+            }
+        }
+    }
+
+    func saveImages(references: [String], to destination: URL) async throws {
+        try lock.withLock {
+            _calls.saveImages += 1
+            if let _failure { throw _failure }
+        }
+        try Data("archive".utf8).write(to: destination)
+    }
+
+    @discardableResult
+    func loadImages(from source: URL) async throws -> [String] {
+        try lock.withLock {
+            _calls.loadImages += 1
+            if let _failure { throw _failure }
+            return _loadResult
         }
     }
 

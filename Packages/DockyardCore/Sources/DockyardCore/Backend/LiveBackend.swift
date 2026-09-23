@@ -220,6 +220,140 @@ public struct LiveBackend: ContainerBackend {
     /// The plugin `container network create` defaults to.
     private static let defaultNetworkPlugin = "container-network-vmnet"
 
+    // MARK: - Registry
+
+    /// Maps the app's choice onto upstream's, which is what `--scheme` takes.
+    private static func requestScheme(_ scheme: RegistryScheme) -> RequestScheme {
+        switch scheme {
+        case .auto: .auto
+        case .https: .https
+        case .http: .http
+        }
+    }
+
+    /// The same keychain service the `container` CLI uses, so logins made in
+    /// either place are visible to both.
+    private var keychain: KeychainHelper {
+        KeychainHelper(securityDomain: Constants.keychainID)
+    }
+
+    public func listRegistryLogins() throws -> [RegistryLogin] {
+        do {
+            return try keychain.list()
+                .map {
+                    RegistryLogin(
+                        hostname: $0.hostname,
+                        username: $0.username,
+                        createdAt: $0.createdDate,
+                        modifiedAt: $0.modifiedDate
+                    )
+                }
+                .sorted { $0.hostname < $1.hostname }
+        } catch {
+            throw DockyardError(mapping: error)
+        }
+    }
+
+    public func logIn(_ credentials: RegistryCredentials, scheme requested: RegistryScheme) async throws {
+        try await mapErrors {
+            let config = try await configLoader.load()
+            // `docker.io` is written `registry-1.docker.io` in a credential
+            // store; resolving here means a user can type what they know.
+            let host = Reference.resolveDomain(domain: credentials.trimmedHostname)
+            let scheme = try Self.requestScheme(requested).schemeFor(
+                host: host,
+                internalDnsDomain: config.dns.domain
+            )
+
+            // Checked before saving: storing a credential that does not work
+            // turns a clear failure now into a confusing one at push time.
+            let authentication = BasicAuthentication(
+                username: credentials.trimmedUsername,
+                password: credentials.password
+            )
+            let client = RegistryClient(
+                host: host,
+                scheme: scheme.rawValue,
+                authentication: authentication
+            )
+            try await client.ping()
+
+            try keychain.save(
+                hostname: host,
+                username: credentials.trimmedUsername,
+                password: credentials.password
+            )
+        }
+    }
+
+    public func logOut(hostname: String) throws {
+        do {
+            let host = Reference.resolveDomain(domain: hostname)
+            // The keychain's delete succeeds silently when nothing matches, so
+            // signing out of something that was never signed in would report
+            // success. Checked first, so the answer is truthful either way.
+            guard try keychain.list().contains(where: { $0.hostname == host }) else {
+                throw DockyardError.upstream(
+                    code: "notFound",
+                    message: "You’re not signed in to \(hostname)."
+                )
+            }
+            try keychain.delete(hostname: host)
+        } catch {
+            throw DockyardError(mapping: error)
+        }
+    }
+
+    public func pushImage(reference: String, platform: String?, scheme: RegistryScheme) -> AsyncThrowingStream<PullProgress, any Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let config = try await configLoader.load()
+                    let image = try await ClientImage.get(reference: reference, containerSystemConfig: config)
+                    let accumulator = ProgressAccumulator { continuation.yield($0) }
+                    // As with pull, the runtime reports sizes but never names
+                    // the phase, so the phase is set here.
+                    accumulator.setPhase(description: "Pushing image", itemsName: "blobs")
+
+                    try await image.push(
+                        platform: try Self.resolvePlatform(platform),
+                        scheme: Self.requestScheme(scheme),
+                        containerSystemConfig: config,
+                        progressUpdate: accumulator.handler
+                    )
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish(throwing: CancellationError())
+                } catch {
+                    continuation.finish(throwing: DockyardError(mapping: error))
+                }
+            }
+            continuation.onTermination = { termination in
+                if case .cancelled = termination { task.cancel() }
+            }
+        }
+    }
+
+    public func saveImages(references: [String], to destination: URL) async throws {
+        try await mapErrors {
+            let config = try await configLoader.load()
+            try await ClientImage.save(
+                references: references,
+                out: destination.path,
+                platform: nil,
+                containerSystemConfig: config
+            )
+        }
+    }
+
+    @discardableResult
+    public func loadImages(from source: URL) async throws -> [String] {
+        try await mapErrors {
+            let result = try await ClientImage.load(from: source.path, force: false)
+            return result.images.map(\.reference)
+        }
+    }
+
     // MARK: - Networks
 
     public func listNetworks() async throws -> [NetworkItem] {
