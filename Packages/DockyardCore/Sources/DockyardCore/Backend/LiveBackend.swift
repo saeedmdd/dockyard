@@ -1,5 +1,6 @@
 import ContainerAPIClient
 import ContainerResource
+import ContainerizationExtras
 import ContainerizationOCI
 import Foundation
 import Logging
@@ -214,6 +215,57 @@ public struct LiveBackend: ContainerBackend {
             }
         }
         return candidates.last ?? "/bin/sh"
+    }
+
+    /// The plugin `container network create` defaults to.
+    private static let defaultNetworkPlugin = "container-network-vmnet"
+
+    // MARK: - Networks
+
+    public func listNetworks() async throws -> [NetworkItem] {
+        try await mapErrors {
+            try await NetworkClient().list()
+                .map(NetworkItem.init(resource:))
+                .sorted { $0.name < $1.name }
+        }
+    }
+
+    @discardableResult
+    public func createNetwork(_ spec: NetworkSpec) async throws -> NetworkItem {
+        try await mapErrors {
+            try Utility.validEntityName(spec.trimmedName)
+            let subnet = spec.trimmedSubnet.isEmpty ? nil : try CIDRv4(spec.trimmedSubnet)
+            let configuration = try NetworkConfiguration(
+                name: spec.trimmedName,
+                mode: spec.mode == .nat ? .nat : .hostOnly,
+                ipv4Subnet: subnet,
+                labels: try ResourceLabels(
+                    Dictionary(
+                        spec.labels.filter { !$0.isEmpty }.map { ($0.key, $0.value) },
+                        uniquingKeysWith: { _, last in last }
+                    )
+                ),
+                // The same default `container network create` uses; naming it
+                // here keeps the app's networks identical to the CLI's.
+                plugin: Self.defaultNetworkPlugin
+            )
+            return NetworkItem(resource: try await NetworkClient().create(configuration: configuration))
+        }
+    }
+
+    public func deleteNetwork(name: String) async throws {
+        try await mapErrors {
+            // The runtime needs its built-in network; removing it would break
+            // every container, so it is refused with a reason rather than left
+            // to fail somewhere deeper.
+            if let network = try? await NetworkClient().get(id: name), network.isBuiltin {
+                throw DockyardError.upstream(
+                    code: "invalidArgument",
+                    message: "The default network is used by the container runtime and cannot be deleted."
+                )
+            }
+            try await NetworkClient().delete(id: name)
+        }
     }
 
     // MARK: - Volumes
@@ -731,6 +783,23 @@ extension VolumeItem {
             labels: configuration.labels,
             options: configuration.options,
             sizeInBytes: configuration.sizeInBytes
+        )
+    }
+}
+
+extension NetworkItem {
+    init(resource: NetworkResource) {
+        let configuration = resource.configuration
+        self.init(
+            name: resource.name,
+            mode: configuration.mode == .nat ? .nat : .hostOnly,
+            createdAt: resource.creationDate,
+            // The subnet and gateway are assigned when the network comes up, so
+            // the status is what carries them, not the configuration.
+            subnet: resource.status.ipv4Subnet.description,
+            gateway: resource.status.ipv4Gateway.description,
+            isBuiltin: resource.isBuiltin,
+            labels: configuration.labels.dictionary
         )
     }
 }

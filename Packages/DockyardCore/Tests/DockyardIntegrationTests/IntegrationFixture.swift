@@ -68,6 +68,11 @@ struct IntegrationFixture: Sendable {
                 try? await backend.deleteVolume(name: volume.name)
             }
         }
+        if let networks = try? await backend.listNetworks() {
+            for network in networks where network.name.hasPrefix(prefix) && !network.isBuiltin {
+                try? await backend.deleteNetwork(name: network.name)
+            }
+        }
         if let images = try? await backend.listImages() {
             for image in images where image.reference.contains(prefix) {
                 _ = try? await backend.deleteImage(reference: image.reference)

@@ -19,7 +19,7 @@ Status: `todo` | `in-progress` | `done` | `done*` (done, one check blocked by th
 | [T13](T13-build-sheet.md) | Build sheet via `container build` | M3 | T10 | done* |
 | [T14](T14-exec-terminal.md) | Exec terminal (SwiftTerm) | M3 | T07 | done |
 | [T15](T15-volumes.md) | Volumes tab | M4 | T04 | done* |
-| [T16](T16-networks.md) | Networks tab | M4 | T04 | todo |
+| [T16](T16-networks.md) | Networks tab | M4 | T04 | done* |
 | [T17](T17-registry-push-save.md) | Registry login, push, save | M4 | T10 | todo |
 | [T18](T18-system-panel.md) | System panel: df, prune, versions, logs | M4 | T03 | todo |
 | [T19](T19-polish-and-settings.md) | Search, shortcuts, settings, launch at login | M5 | T05–T18 | todo |

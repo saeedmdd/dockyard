@@ -14,7 +14,7 @@ struct SidebarView: View {
             }
             Section("Infrastructure") {
                 row(.volumes, badge: model.volumes.items.count)
-                row(.networks, badge: nil)
+                row(.networks, badge: model.networks.items.count)
             }
             Section {
                 row(.system, badge: nil)

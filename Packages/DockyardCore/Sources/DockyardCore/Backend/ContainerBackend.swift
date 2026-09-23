@@ -49,6 +49,14 @@ public protocol ContainerBackend: Sendable {
     /// Bytes a volume is actually using, which is a separate query from listing.
     func volumeDiskUsage(name: String) async throws -> UInt64
 
+    /// Networks the runtime manages.
+    func listNetworks() async throws -> [NetworkItem]
+
+    @discardableResult
+    func createNetwork(_ spec: NetworkSpec) async throws -> NetworkItem
+
+    func deleteNetwork(name: String) async throws
+
     /// Open file handles for a container's logs.
     ///
     /// These are ordinary files the runtime appends to, so following one means

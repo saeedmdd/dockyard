@@ -42,8 +42,8 @@ enum SidebarSection: String, Hashable, CaseIterable, Identifiable {
     var isImplemented: Bool {
         switch self {
         case .containers, .images: true
-        case .volumes: true
-        case .networks, .system: false
+        case .volumes, .networks: true
+        case .system: false
         }
     }
 }
@@ -62,6 +62,7 @@ final class AppModel {
     let run: RunStore
     let builds: BuildStore
     let volumes: VolumeStore
+    let networks: NetworkStore
 
     var selectedSection: SidebarSection = .containers
     var selectedContainerID: ContainerItem.ID? {
@@ -71,6 +72,7 @@ final class AppModel {
         }
     }
     var selectedVolumeName: String?
+    var selectedNetworkName: String?
     var selectedImageID: ImageItem.ID? {
         didSet {
             guard selectedImageID != oldValue else { return }
@@ -119,6 +121,7 @@ final class AppModel {
         self.imageDetail = ImageDetailStore(backend: backend)
         self.run = RunStore(backend: backend)
         self.volumes = VolumeStore(backend: backend)
+        self.networks = NetworkStore(backend: backend)
         let images = self.images
         self.builds = BuildStore { await images.refresh() }
         self.poller = Poller(interval: .seconds(2)) { [weak self] in
@@ -140,6 +143,7 @@ final class AppModel {
         // Keeps uptime and status live while the user reads the detail pane.
         await containerDetail.refresh()
         if selectedSection == .volumes { await volumes.refresh() }
+        if selectedSection == .networks { await networks.refresh() }
     }
 
     /// Names of containers mounting a volume.

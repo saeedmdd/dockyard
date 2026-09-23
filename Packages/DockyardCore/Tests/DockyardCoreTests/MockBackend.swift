@@ -31,6 +31,9 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         var createVolume = 0
         var deleteVolume = 0
         var volumeUsage = 0
+        var listNetworks = 0
+        var createNetwork = 0
+        var deleteNetwork = 0
     }
 
     /// Records what was asked of each container, in order.
@@ -51,6 +54,7 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
     private var _logFiles: [String: URL] = [:]
     private var _volumes: [VolumeItem] = []
     private var _volumeUsage: [String: UInt64] = [:]
+    private var _networks: [NetworkItem] = []
     private var _pullProgress: [PullProgress] = []
     private var _pullFailure: DockyardError?
     private var _createProgress: [PullProgress] = []
@@ -444,6 +448,49 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         }
     }
 
+    func setNetworks(_ networks: [NetworkItem]) {
+        lock.withLock { _networks = networks }
+    }
+
+    func listNetworks() async throws -> [NetworkItem] {
+        try lock.withLock {
+            _calls.listNetworks += 1
+            if let _failure { throw _failure }
+            return _networks.sorted { $0.name < $1.name }
+        }
+    }
+
+    @discardableResult
+    func createNetwork(_ spec: NetworkSpec) async throws -> NetworkItem {
+        try lock.withLock {
+            _calls.createNetwork += 1
+            if let _failure { throw _failure }
+            if _networks.contains(where: { $0.name == spec.trimmedName }) {
+                throw DockyardError.upstream(code: "exists", message: "network already exists")
+            }
+            let network = NetworkItem.stub(name: spec.trimmedName, mode: spec.mode)
+            _networks.append(network)
+            return network
+        }
+    }
+
+    func deleteNetwork(name: String) async throws {
+        try lock.withLock {
+            _calls.deleteNetwork += 1
+            if let _failure { throw _failure }
+            guard let network = _networks.first(where: { $0.name == name }) else {
+                throw DockyardError.upstream(code: "notFound", message: "no such network")
+            }
+            if network.isBuiltin {
+                throw DockyardError.upstream(
+                    code: "invalidArgument",
+                    message: "The default network is used by the container runtime and cannot be deleted."
+                )
+            }
+            _networks.removeAll { $0.name == name }
+        }
+    }
+
     func setLogFile(_ url: URL, for id: String) {
         lock.withLock { _logFiles[id] = url }
     }
@@ -655,6 +702,24 @@ extension VolumeItem {
             labels: [:],
             options: [:],
             sizeInBytes: nil
+        )
+    }
+}
+
+extension NetworkItem {
+    static func stub(
+        name: String = "default",
+        mode: NetworkItem.Mode = .nat,
+        isBuiltin: Bool = false
+    ) -> NetworkItem {
+        NetworkItem(
+            name: name,
+            mode: mode,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            subnet: "192.168.64.0/24",
+            gateway: "192.168.64.1",
+            isBuiltin: isBuiltin,
+            labels: [:]
         )
     }
 }
