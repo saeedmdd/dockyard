@@ -12,9 +12,9 @@ concurrency:
 
 jobs:
   build:
-    # Apple Silicon, macOS 26, Xcode 26.6. Dockyard needs all three: the
-    # package is swift-tools 6.2, the deployment target is macOS 26, and
-    # `apple/container` only exists on ARM.
+    # Apple Silicon, macOS 26. Dockyard needs both: the package is
+    # swift-tools 6.2 with a macOS 26 deployment target, and `apple/container`
+    # only exists on ARM.
     runs-on: macos-26
 
     steps:
@@ -43,62 +43,22 @@ jobs:
           restore-keys: spm-${{ runner.os }}-
 
       # Compiling and running are separate steps so a red run says which it was
-      # without anyone opening the log: the runner has Xcode 26.6 while a
-      # developer may be on something newer, and "the tests failed" reads very
-      # differently from "the tests did not build".
+      # without anyone opening the log.
       - name: Compile the tests
         working-directory: Packages/DockyardCore
-        run: swift build --build-tests 2>&1 | tee build.log
+        # pipefail matters: without it the pipeline reports tee's status and a
+        # compile failure passes straight through this step.
+        run: |
+          set -o pipefail
+          swift build --build-tests 2>&1 | tee ../../test-build.log
 
       - name: Run the unit tests
         working-directory: Packages/DockyardCore
-        run: swift test --skip-build --xunit-output test-results.xml
-
-      - name: Report what failed
-        if: failure()
-        working-directory: Packages/DockyardCore
-        run: |
-          {
-            echo "## Failures"
-            echo
-            if [[ -f test-results.xml ]]; then
-              echo '```'
-              python3 - <<'PY'
-          import xml.etree.ElementTree as ET
-          for case in ET.parse("test-results.xml").getroot().iter("testcase"):
-              for failure in case.iter("failure"):
-                  print(f'{case.get("classname")}.{case.get("name")}')
-                  print(f'  {failure.get("message")}')
-          PY
-              echo '```'
-            else
-              echo "The tests did not get as far as running. Last lines of the build:"
-              echo '```'
-              tail -40 build.log 2>/dev/null || echo "(no build log)"
-              echo '```'
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-          cat "$GITHUB_STEP_SUMMARY"
-
-          # Also as annotations: the step summary is only readable by someone
-          # opening the run page, while annotations come back from the public
-          # API, so a failure can be diagnosed without repository access.
-          if [[ -f test-results.xml ]]; then
-            python3 - <<'PY'
-          import xml.etree.ElementTree as ET
-          for case in ET.parse("test-results.xml").getroot().iter("testcase"):
-              for failure in case.iter("failure"):
-                  message = (failure.get("message") or "").replace("\n", " ")[:400]
-                  print(f'::error title={case.get("name")}::{message}')
-          PY
-          else
-            grep -E "error:" build.log 2>/dev/null | head -10 | while read -r line; do
-              echo "::error title=Build::${line}"
-            done
-          fi
+        run: swift test --skip-build --xunit-output ../../test-results.xml
 
       - name: Build the app
         run: |
+          set -o pipefail
           xcodebuild build \
             -project Dockyard.xcodeproj \
             -scheme Dockyard \
@@ -106,7 +66,48 @@ jobs:
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
             -skipPackagePluginValidation \
-            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
+            2>&1 | tee app-build.log
+
+      # Last, so it covers every step above it. The job summary is for whoever
+      # opens the run; the annotations come back from the public API, so a red
+      # build can be diagnosed without repository access.
+      - name: Report what failed
+        if: failure()
+        run: |
+          emit() {
+            echo "## $1" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          for log in test-build.log app-build.log; do
+            [[ -f "$log" ]] || continue
+            if grep -qE "error:" "$log"; then
+              grep -E "error:" "$log" | sort -u | head -40 | emit "$log"
+              grep -E "error:" "$log" | sort -u | head -20 | while IFS= read -r line; do
+                echo "::error title=${log}::${line}"
+              done
+            fi
+          done
+
+          if [[ -f test-results.xml ]]; then
+            python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import xml.etree.ElementTree as ET
+          for case in ET.parse("test-results.xml").getroot().iter("testcase"):
+              for failure in case.iter("failure"):
+                  message = (failure.get("message") or "").replace("\n", " ")[:400]
+                  print(f'::error title={case.get("name")}::{message}')
+          PY
+          fi
+
+          # Tail of whichever log exists, in case nothing matched "error:" —
+          # silence here would otherwise look like there was nothing to report.
+          for log in app-build.log test-build.log; do
+            [[ -f "$log" ]] && tail -30 "$log" | emit "tail of $log"
+          done
+          cat "$GITHUB_STEP_SUMMARY"
 
       # The integration tests are deliberately not run here. They need a live
       # `container-apiserver`, which needs Virtualization.framework, which a
