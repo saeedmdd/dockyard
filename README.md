@@ -1,5 +1,7 @@
 # Dockyard
 
+[![CI](https://github.com/saeedmdd/dockyard/actions/workflows/ci.yml/badge.svg)](https://github.com/saeedmdd/dockyard/actions/workflows/ci.yml)
+
 A native macOS app for [`apple/container`](https://github.com/apple/container), Apple's Linux
 container runtime. See your containers and images, pull and build images, run containers, read their
 logs, open a shell in them, and manage volumes, networks and registries — without leaving the GUI.
@@ -25,7 +27,8 @@ Dockyard does **not** bundle the runtime. Install Apple's package first.
 
 1. Install `apple/container` from its
    [releases page](https://github.com/apple/container/releases) and run the installer.
-2. Download `Dockyard-<version>.dmg` from this project's releases, open it, and drag Dockyard to
+2. Download `Dockyard-<version>.dmg` from the
+   [releases page](https://github.com/saeedmdd/dockyard/releases), open it, and drag Dockyard to
    Applications.
 3. Open Dockyard.
 
@@ -67,7 +70,7 @@ SwiftTerm's build plugin depends on. Built and tested here with Xcode 27.0 on ma
 
 ```sh
 xcodebuild -downloadComponent MetalToolchain
-git clone <this repo> && cd macos-comtainer
+git clone git@github.com:saeedmdd/dockyard.git && cd dockyard
 xcodebuild -project Dockyard.xcodeproj -scheme Dockyard -configuration Debug \
     -skipPackagePluginValidation build
 ```
