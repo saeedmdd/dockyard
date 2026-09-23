@@ -197,8 +197,24 @@ import Testing
 
         #expect(flags.management.os == "linux")
         #expect(!flags.management.arch.isEmpty)
-        #expect(flags.registry.scheme == "auto")
+        // 1.4.1 defaults this to `https`, where 1.0.0 used `auto`.
+        #expect(flags.registry.scheme == "https")
         #expect(flags.imageFetch.maxConcurrentDownloads == 3)
+    }
+
+    /// An image on this machine is served over plain HTTP, and 1.4.1 removed
+    /// the `auto` scheme that used to work that out.
+    @Test func anImageFromALocalRegistryIsFetchedOverHTTP() throws {
+        let flags = try RunSpec(image: "127.0.0.1:15000/app:1").toFlags()
+        #expect(flags.registry.scheme == "http")
+
+        let localhost = try RunSpec(image: "localhost:5000/app:1").toFlags()
+        #expect(localhost.registry.scheme == "http")
+    }
+
+    @Test func aRemoteImageKeepsHTTPS() throws {
+        #expect(try RunSpec(image: "ghcr.io/me/app:1").toFlags().registry.scheme == "https")
+        #expect(try RunSpec(image: "alpine:3.20").toFlags().registry.scheme == "https")
     }
 }
 

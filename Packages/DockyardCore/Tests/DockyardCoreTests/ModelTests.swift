@@ -81,12 +81,13 @@ import Testing
         #expect(!DaemonHealth.stub(version: "1.1.0").matchesLinkedVersion)
     }
 
-    /// What the 1.0.0 apiserver actually sends: the whole sentence, not a semver.
+    /// What the apiserver actually sends: the whole sentence, not a semver.
     @Test func versionIsExtractedFromTheServersFullSentence() {
         let health = DaemonHealth.stub(
-            version: "container-apiserver version 1.0.0 (build: release, commit: ee848e3)"
+            version: "container-apiserver version \(DockyardCore.linkedContainerVersion) "
+                + "(build: release, commit: ee848e3)"
         )
-        #expect(health.semanticVersion == "1.0.0")
+        #expect(health.semanticVersion == DockyardCore.linkedContainerVersion)
         #expect(health.matchesLinkedVersion)
     }
 

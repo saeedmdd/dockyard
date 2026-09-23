@@ -14,5 +14,5 @@ public enum DockyardCore {
     /// `ContainerVersion.ReleaseVersion` is deliberately not used here: it reads
     /// `CFBundleShortVersionString` from the *host* bundle, which for Dockyard is
     /// Dockyard's own version, not the linked container version.
-    public static let linkedContainerVersion = "1.0.0"
+    public static let linkedContainerVersion = "1.4.1"
 }

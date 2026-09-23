@@ -370,12 +370,33 @@ public struct LiveBackend: ContainerBackend {
     // MARK: - Registry
 
     /// Maps the app's choice onto upstream's, which is what `--scheme` takes.
-    private static func requestScheme(_ scheme: RegistryScheme) -> RequestScheme {
+    ///
+    /// 1.4.1 dropped `RequestScheme.auto`, so "Automatic" is now resolved here
+    /// rather than inside the runtime. The rule is the one T17 arrived at the
+    /// hard way: a registry on this machine speaks plain HTTP, and `auto`
+    /// picking HTTPS for it failed with `I/O on closed channel`, which says
+    /// nothing about TLS. Everything else gets HTTPS.
+    static func requestScheme(_ scheme: RegistryScheme, host: String) -> RequestScheme {
         switch scheme {
-        case .auto: .auto
         case .https: .https
         case .http: .http
+        case .auto: isLoopback(host) ? .http : .https
         }
+    }
+
+    /// Whether a registry reference points at this machine.
+    static func isLoopback(_ host: String) -> Bool {
+        let name = host.split(separator: ":").first.map(String.init) ?? host
+        return name == "localhost" || name == "127.0.0.1" || name == "::1"
+            || name.hasSuffix(".localhost")
+    }
+
+    /// The registry host a reference points at, or empty when it names none.
+    static func registryHost(of reference: String) -> String {
+        guard let first = reference.split(separator: "/").first.map(String.init),
+            first.contains(".") || first.contains(":") || first == "localhost"
+        else { return "" }
+        return first
     }
 
     /// The same keychain service the `container` CLI uses, so logins made in
@@ -407,7 +428,9 @@ public struct LiveBackend: ContainerBackend {
             // `docker.io` is written `registry-1.docker.io` in a credential
             // store; resolving here means a user can type what they know.
             let host = Reference.resolveDomain(domain: credentials.trimmedHostname)
-            let scheme = try Self.requestScheme(requested).schemeFor(
+            // 1.4.1's `schemeFor` no longer resolves anything — it returns
+            // what it is given — so the host is what decides, here.
+            let scheme = try Self.requestScheme(requested, host: host).schemeFor(
                 host: host,
                 internalDnsDomain: config.dns.domain
             )
@@ -464,7 +487,7 @@ public struct LiveBackend: ContainerBackend {
 
                     try await image.push(
                         platform: try Self.resolvePlatform(platform),
-                        scheme: Self.requestScheme(scheme),
+                        scheme: Self.requestScheme(scheme, host: Self.registryHost(of: reference)),
                         containerSystemConfig: config,
                         progressUpdate: accumulator.handler
                     )
@@ -514,7 +537,7 @@ public struct LiveBackend: ContainerBackend {
     @discardableResult
     public func createNetwork(_ spec: NetworkSpec) async throws -> NetworkItem {
         try await mapErrors {
-            try Utility.validEntityName(spec.trimmedName)
+            try EntityName.validate(spec.trimmedName)
             let subnet = spec.trimmedSubnet.isEmpty ? nil : try CIDRv4(spec.trimmedSubnet)
             let configuration = try NetworkConfiguration(
                 name: spec.trimmedName,
@@ -564,7 +587,7 @@ public struct LiveBackend: ContainerBackend {
         try await mapErrors {
             // Validated with the runtime's own rule rather than only the
             // sheet's, so the two can never disagree.
-            try Utility.validEntityName(spec.trimmedName)
+            try EntityName.validate(spec.trimmedName)
             let configuration = try await ClientVolume.create(
                 name: spec.trimmedName,
                 driver: spec.driver,
@@ -613,11 +636,12 @@ public struct LiveBackend: ContainerBackend {
             let task = Task {
                 do {
                     let config = try await configLoader.load()
-                    // Same two steps the CLI takes, in the same order: mint an
-                    // id from the requested name, then validate it with the
-                    // runtime's own rule rather than a guess at it.
+                    // Mint an id from the requested name, then validate it.
+                    // 1.4.1 stopped validating container names anywhere, so
+                    // without this an unusable name reaches the daemon and
+                    // fails later with a message that does not name the field.
                     let id = Utility.createContainerID(name: spec.trimmedName.isEmpty ? nil : spec.trimmedName)
-                    try Utility.validEntityName(id)
+                    try EntityName.validate(id)
 
                     let flags = try spec.toFlags()
                     let accumulator = ProgressAccumulator { progress in
@@ -773,7 +797,7 @@ public struct LiveBackend: ContainerBackend {
                     let image = try await ClientImage.pull(
                         reference: normalized,
                         platform: resolvedPlatform,
-                        scheme: .auto,
+                        scheme: Self.requestScheme(.auto, host: Self.registryHost(of: normalized)),
                         containerSystemConfig: config,
                         progressUpdate: accumulator.handler
                     )
