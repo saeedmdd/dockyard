@@ -30,10 +30,25 @@ Build an image from a Dockerfile/Containerfile with streamed output and cancella
 - [x] `--progress plain` is asserted in the command, and checked for ANSI escapes when a build can
       complete.
 - [x] 204 unit tests in 31 suites; 28 integration tests; `xcodebuild` clean.
-- [ ] **A successful build could not be verified on this machine** — see below. The tests that need
+- [x] **A successful build now works** — see the resolution below.
+- [ ] ~~A successful build could not be verified on this machine~~ — see below. The tests that need
       one are gated and skip cleanly; they will run wherever the builder works.
 
-## Blocked: the runtime's builder cannot start on this machine
+## Resolved: it was the runtime, and 1.4.1 fixes it
+
+The builder is itself a multi-layer image, and on `container` 1.0.0 **no** multi-layer image could
+be mounted on this machine: one layer started, three and eight failed with the same
+`internalError: "mount"`. Nothing to do with the builder specifically.
+
+Upgrading to 1.4.1 fixes it, with one catch worth knowing: an image unpacked by the old runtime
+keeps a snapshot the new one still cannot mount, so the image has to be re-pulled or rebuilt before
+it will start. A freshly pulled multi-layer image works immediately.
+
+`container build` now completes, the built image runs, and `CompletedBuildTests` — the suite that
+had been skipping itself via `BuilderProbe` — runs and passes. Gating that suite on a probe rather
+than hard-disabling it is what let it switch itself back on with no edit.
+
+## What it looked like at the time (kept for the record)
 `container build` fails before reaching the Dockerfile:
 
 ```

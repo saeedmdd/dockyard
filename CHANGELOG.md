@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.0
+
+Built against `apple/container` 1.4.1, up from 1.0.0.
+
+### Why upgrade
+On 1.0.0 any image with more than one layer failed to start with
+`internalError: "mount"` — a single-layer image worked, three and eight did not —
+and `container build` failed the same way, because the buildkit builder is
+itself a multi-layer image. 1.4.1 fixes both and carries two security fixes in
+Containerization.
+
+**An upgrade alone is not enough.** An image unpacked by an older runtime keeps a
+snapshot the new one cannot mount. Re-pull it, or rebuild it if it was built
+locally, and the new runtime writes a snapshot it can use.
+
+### Changed
+- Container, volume and network names are validated in the app now.
+  `Utility.validEntityName` was removed upstream; the rule is unchanged, but it
+  is applied in the sheet where a bad name can still be fixed, rather than after
+  a round trip to the daemon.
+- "Automatic" registry scheme is resolved by Dockyard. Upstream removed
+  `RequestScheme.auto` and changed the default from `auto` to `https`, which
+  silently breaks a registry on this machine serving plain HTTP. Pull, push and
+  run now all pick the scheme from the host.
+
+### Added
+- An app icon.
+
 ## 0.1.0
 
 First release. Built against `apple/container` 1.0.0.

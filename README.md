@@ -19,7 +19,7 @@ entirely when the window is hidden.
 |---|---|
 | macOS | 26 or later |
 | Mac | Apple Silicon — `apple/container` boots Linux VMs through Virtualization.framework |
-| `apple/container` | 1.0.0, installed from Apple's package |
+| `apple/container` | 1.4.1, installed from Apple's package |
 
 Dockyard does **not** bundle the runtime. Install Apple's package first.
 
@@ -61,7 +61,14 @@ tested one.
 
 | Dockyard | `apple/container` |
 |---|---|
+| 0.2.0 | 1.4.1 |
 | 0.1.0 | 1.0.0 |
+
+Upgrading the runtime is not enough on its own: an image unpacked by an older
+`container` keeps a snapshot the new one cannot mount, and every container made
+from it fails to start with `internalError: "mount"`. Re-pull the image — or
+rebuild it, if it was built locally — and the new runtime writes a snapshot it
+can use.
 
 ## Building from source
 
