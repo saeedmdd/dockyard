@@ -26,3 +26,4 @@ Status: `todo` | `in-progress` | `done` | `done*` (done, one check blocked by th
 | [T20](T20-release-pipeline.md) | Build/sign/notarize scripts, README | M5 | T19 | done* |
 | [T21](T21-compose-plumbing.md) | Compose plumbing: Yams, label listing, DNS reads | M6 | T20 | done |
 | [T22](T22-compose-parsing.md) | Compose parsing, interpolation, service graph | M6 | T21 | done |
+| [T23](T23-hostname-rewriting.md) | Hostname rewriting | M6 | T22 | done |
