@@ -9,13 +9,23 @@ import Testing
 @Suite(.enabled(if: IntegrationGate.isEnabled), .serialized)
 struct InspectParityTests {
 
+    /// Inspects a container this test owns.
+    ///
+    /// It used to take whatever `listContainers().first` returned, which is a
+    /// race: another suite can delete that container between the list and the
+    /// inspect, and the CLI then prints a truncated document that fails to
+    /// parse. Harmless when this was the only suite creating containers; not
+    /// once compose projects come and go alongside it.
     @Test func inspectJSONMatchesTheCLI() async throws {
-        let backend = LiveBackend()
-        let containers = try await backend.listContainers()
-        guard let container = containers.first else {
-            // Nothing to inspect on this machine; T12 creates its own fixture.
-            return
+        try await withFixture { fixture in
+            try await fixture.ensureTestImage()
+            let id = try await fixture.create(fixture.sleeperSpec("inspect"))
+            try await Self.compareInspect(id: id, backend: fixture.backend)
         }
+    }
+
+    private static func compareInspect(id: String, backend: LiveBackend) async throws {
+        let container = try #require(try await backend.listContainers().first { $0.id == id })
 
         let appJSON = try await backend.containerInspectJSON(id: container.id)
         let cliJSON = try await Self.cliInspect(id: container.id)
@@ -47,8 +57,15 @@ struct InspectParityTests {
 
     /// The detail model must agree with the list model about the same container.
     @Test func detailAgreesWithTheListEntry() async throws {
-        let backend = LiveBackend()
-        guard let item = try await backend.listContainers().first else { return }
+        try await withFixture { fixture in
+            try await fixture.ensureTestImage()
+            let id = try await fixture.create(fixture.sleeperSpec("detail"))
+            try await Self.compareDetail(id: id, backend: fixture.backend)
+        }
+    }
+
+    private static func compareDetail(id: String, backend: LiveBackend) async throws {
+        let item = try #require(try await backend.listContainers().first { $0.id == id })
 
         let detail = try await backend.containerDetail(id: item.id)
 
