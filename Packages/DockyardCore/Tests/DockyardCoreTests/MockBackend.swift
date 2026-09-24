@@ -76,6 +76,9 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
     private var _kernel: KernelInfo = .stub()
     /// Names a prune reports as failures, to exercise a partial sweep.
     private var _prunePartialFailures: [String] = []
+    /// Failures scoped to one container id, for testing a run that breaks part
+    /// of the way through rather than everywhere at once.
+    private var _createFailures: [String: DockyardError] = [:]
     private var _dnsDomain: String?
     private var _hostResolverDomains: [String] = []
 
@@ -125,6 +128,10 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
 
     func setPrunePartialFailures(_ failures: [String]) {
         lock.withLock { _prunePartialFailures = failures }
+    }
+
+    func setCreateFailure(forID id: String, _ failure: DockyardError) {
+        lock.withLock { _createFailures[id] = failure }
     }
 
     func setDNSDomain(_ domain: String?) {
@@ -488,7 +495,13 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
         let (updates, failure, id) = lock.withLock { () -> ([PullProgress], DockyardError?, String) in
             _calls.createContainer += 1
             _createdCount += 1
-            return (_createProgress, _failure, "created-\(_createdCount)")
+            // Honour the requested name. A synthetic id would make every
+            // follow-up call — start, the labels, a second `up`'s reconciliation
+            // — address a container that does not exist under the name the
+            // caller asked for.
+            let id = spec.trimmedName.isEmpty ? "created-\(_createdCount)" : spec.trimmedName
+            _invocations.append(.init(id: id, action: "create", detail: spec.image))
+            return (_createProgress, _failure ?? _createFailures[id], id)
         }
         return AsyncThrowingStream { continuation in
             let task = Task {
@@ -505,7 +518,18 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
                     continuation.finish(throwing: CancellationError())
                 } else {
                     self.lock.withLock {
-                        self._containers.append(.stub(id: id, status: .stopped))
+                        self._containers.append(
+                            .stub(
+                                id: id,
+                                image: spec.image,
+                                status: .stopped,
+                                ports: spec.publishedPorts.compactMap(Self.portMapping(from:)),
+                                labels: Dictionary(
+                                    spec.labels.map { ($0.key, $0.value) },
+                                    uniquingKeysWith: { _, last in last }
+                                )
+                            )
+                        )
                     }
                     continuation.yield(.created(id: id))
                     continuation.finish()
@@ -515,6 +539,18 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
                 if case .cancelled = termination { task.cancel() }
             }
         }
+    }
+
+    /// `"8080:80"` back into a `PortMapping`, so a created container reports the
+    /// ports it published and a later conflict check can see them.
+    private static func portMapping(from published: String) -> PortMapping? {
+        guard let parsed = ComposeParser.parsePort(published) else { return nil }
+        return .init(
+            hostAddress: parsed.hostAddress ?? "0.0.0.0",
+            hostPort: parsed.hostPort,
+            containerPort: parsed.containerPort,
+            networkProtocol: parsed.networkProtocol
+        )
     }
 
     func exec(_ request: ExecRequest) async throws -> any ExecSessionHandle {
@@ -575,6 +611,7 @@ final class MockBackend: ContainerBackend, @unchecked Sendable {
     func deleteVolume(name: String) async throws {
         try lock.withLock {
             _calls.deleteVolume += 1
+            _invocations.append(.init(id: name, action: "deleteVolume", detail: nil))
             if let _failure { throw _failure }
             guard _volumes.contains(where: { $0.name == name }) else {
                 throw DockyardError.upstream(code: "notFound", message: "no such volume")

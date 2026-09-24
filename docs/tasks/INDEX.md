@@ -28,3 +28,4 @@ Status: `todo` | `in-progress` | `done` | `done*` (done, one check blocked by th
 | [T22](T22-compose-parsing.md) | Compose parsing, interpolation, service graph | M6 | T21 | done |
 | [T23](T23-hostname-rewriting.md) | Hostname rewriting | M6 | T22 | done |
 | [T24](T24-compose-planner.md) | Planner: compose spec to container specs | M6 | T23 | done |
+| [T25](T25-compose-up-down.md) | Compose up and down | M6 | T24 | done |

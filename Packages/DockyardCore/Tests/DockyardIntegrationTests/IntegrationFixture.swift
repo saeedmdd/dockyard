@@ -99,6 +99,27 @@ func withFixture(
     await fixture.cleanUp()
 }
 
+/// The same thing for a test that drives a store.
+///
+/// Stores are `@MainActor`, and a closure handed to the plain `withFixture`
+/// arrives without isolation, so every call inside it would be a cross-actor
+/// hop the compiler refuses. Declaring the body `@MainActor` keeps the test
+/// readable instead of wrapping each line in `MainActor.run`.
+@MainActor
+func withMainActorFixture(
+    _ body: @MainActor (IntegrationFixture) async throws -> Void
+) async throws {
+    try await ensureDaemonRunning()
+    let fixture = IntegrationFixture()
+    do {
+        try await body(fixture)
+    } catch {
+        await fixture.cleanUp()
+        throw error
+    }
+    await fixture.cleanUp()
+}
+
 /// Starts the container system if it is not already up.
 ///
 /// A developer running these tests should not have to remember to start the
